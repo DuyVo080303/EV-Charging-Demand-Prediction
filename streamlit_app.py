@@ -54,33 +54,37 @@ def load_station_cluster_map(path: str) -> pd.DataFrame:
 
 CLUSTER_ARTIFACT_ROOT = os.path.join("artifacts", "clusters")
 
-def cluster_dir(cid: int) -> str:
-    # artifacts/clusters/<cid>
-    return os.path.join(CLUSTER_ARTIFACT_ROOT, str(int(cid)))
-
-# ================== STRICT CLUSTER ARTIFACTS (NO GLOBAL) ==================
+def cluster_dir_candidates(cid: int) -> list[str]:
+    cid = int(cid)
+    return [
+        os.path.join("artifacts", "clusters", str(cid)),   # <— kiểu của bạn hiện tại
+        os.path.join("artifacts", f"cluster_{cid}"),       # <— kiểu cũ
+    ]
+  
 @st.cache_resource(show_spinner=False)
 def load_artifacts_for_cluster(geo_cluster: int):
-    cdir = cluster_dir(int(geo_cluster))
-    mpath = os.path.join(cdir, "model_gru.keras")
-    spath = os.path.join(cdir, "scaler.joblib")
-    tpath = os.path.join(cdir, "tail.npy")  # optional
+    found = None
+    for cdir in cluster_dir_candidates(geo_cluster):
+        mpath = os.path.join(cdir, "model_gru.keras")
+        spath = os.path.join(cdir, "scaler.joblib")
+        tpath = os.path.join(cdir, "tail.npy")
+        if os.path.exists(mpath) and os.path.exists(spath):
+            found = (cdir, mpath, spath, tpath)
+            break
 
-    # Bắt buộc phải có model + scaler của CỤM
-    missing = []
-    if not os.path.exists(mpath): missing.append(mpath)
-    if not os.path.exists(spath): missing.append(spath)
-    if missing:
+    if not found:
         raise FileNotFoundError(
-            "Thiếu artifacts theo cụm. Cần các file sau:\n" + "\n".join(missing)
+            "Không tìm thấy artifacts cho cụm "
+            f"{geo_cluster}. Hãy đặt files tại một trong các đường dẫn:\n" +
+            "\n".join([os.path.join(p, "{model_gru.keras, scaler.joblib}") for p in cluster_dir_candidates(geo_cluster)])
         )
 
+    cdir, mpath, spath, tpath = found
     model = load_model(mpath)
     scaler = joblib.load(spath)
     tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
-    seq_len = model.input_shape[1]
-    n_feat  = model.input_shape[2]
-    return model, scaler, tail_scaled, seq_len, n_feat
+    return model, scaler, tail_scaled, model.input_shape[1], model.input_shape[2]
+
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
