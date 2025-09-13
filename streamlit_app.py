@@ -31,7 +31,7 @@ def load_history(path: str) -> pd.DataFrame:
     needed = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     miss = [c for c in needed if c not in df.columns]
     if miss:
-        raise ValueError(f"Thiếu cột trong history.csv: {miss}")
+        raise ValueError(f"Column is missing in history.csv: {miss}")
     return df
 
 @st.cache_data(show_spinner=False)
