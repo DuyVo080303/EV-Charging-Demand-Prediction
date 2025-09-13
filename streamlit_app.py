@@ -187,6 +187,7 @@ def forecast_direct_multistep(model, scaler, seed_scaled, exog_future_scaled, ho
     inv = scaler.inverse_transform(dummy)[:, 0]  # chuyển về giá trị ban đầu
     return inv
 
+
 def infer_freq(ts: pd.Series) -> pd.Timedelta:
     diffs = ts.diff()
     if diffs.notna().any():
