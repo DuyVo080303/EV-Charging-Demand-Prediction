@@ -21,47 +21,58 @@ CLUSTER_ARTIFACT_ROOT = "artifacts"
 st.set_page_config(page_title="EVAT — GRU Forecast by Station", page_icon="⚡", layout="wide")
 st.title("⚡ EVAT — GRU Forecast per Cluster / Station")
 st.caption("Select a station, adjust external factors → get a **forecast line chart**.")
+
 # ========== UTILITY FUNCTIONS ==========
 @st.cache_data(show_spinner=False)
 def load_history(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, parse_dates=[TIME_COL])
-    # Check missing columns
+    df = df.sort_values([ID_COL, TIME_COL]).reset_index(drop=True)
+    # Kiểm tra cột tối thiểu
     needed = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     miss = [c for c in needed if c not in df.columns]
     if miss:
-        raise ValueError(f"Column is missing in history.csv: {miss}")
+        raise ValueError(f"Thiếu cột trong history.csv: {miss}")
     return df
-  
+
 @st.cache_data(show_spinner=False)
 def load_station_cluster_map(path: str) -> pd.DataFrame:
     m = pd.read_csv(path)
-    if not {"station_id","geo_cluster"}.issubset(m.columns):
-        raise ValueError("station_to_cluster.csv need: station_id, geo_cluster")
+    if not {"station_id","cluster_id"}.issubset(m.columns):
+        raise ValueError("station_to_cluster.csv cần có cột: station_id, cluster_id")
     return m
 
 def cluster_dir(cid: int) -> str:
     return os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{cid}")
 
 @st.cache_resource(show_spinner=False)
-def load_artifacts(geo_cluster: Optional[int]):
-    if geo_cluster is not None:
-        cdir = os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{geo_cluster}")
-        mpath, spath, tpath = (os.path.join(cdir, "model_gru.keras"),
-                               os.path.join(cdir, "scaler.joblib"),
-                               os.path.join(cdir, "tail.npy"))
+def load_artifacts(cluster_id: int | None):
+    """
+    Trả về (model, scaler, tail_scaled_or_None, seq_len, n_feat).
+    Ưu tiên artifacts theo cụm nếu có; nếu không, rơi về global.
+    """
+    # 1) Thử cụm
+    if cluster_id is not None:
+        cdir = cluster_dir(cluster_id)
+        mpath = os.path.join(cdir, "model_gru.keras")
+        spath = os.path.join(cdir, "scaler.joblib")
+        tpath = os.path.join(cdir, "tail.npy")
         if os.path.exists(mpath) and os.path.exists(spath):
             model = load_model(mpath)
             scaler = joblib.load(spath)
             tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
-            return model, scaler, tail_scaled, model.input_shape[1], model.input_shape[2]
+            seq_len = model.input_shape[1]
+            n_feat = model.input_shape[2]
+            return model, scaler, tail_scaled, seq_len, n_feat
 
-    # Fallback GLOBAL
+    # 2) Rơi về global
     if not (os.path.exists(GLOBAL_MODEL_PATH) and os.path.exists(GLOBAL_SCALER_PATH)):
-        raise FileNotFoundError("Không tìm thấy model/scaler. Cần per-cluster hoặc global.")
+        raise FileNotFoundError("Không tìm thấy model/scaler. Hãy cung cấp per-cluster hoặc global.")
     model = load_model(GLOBAL_MODEL_PATH)
     scaler = joblib.load(GLOBAL_SCALER_PATH)
     tail_scaled = np.load(GLOBAL_TAIL_PATH) if os.path.exists(GLOBAL_TAIL_PATH) else None
-    return model, scaler, tail_scaled, model.input_shape[1], model.input_shape[2]
+    seq_len = model.input_shape[1]
+    n_feat = model.input_shape[2]
+    return model, scaler, tail_scaled, seq_len, n_feat
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
@@ -140,20 +151,17 @@ h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
-hist_path = "history.csv"
-map_path = "station_to_cluster.csv"
-
 df_hist = load_history(hist_path)
 map_df = load_station_cluster_map(map_path)
 
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
 
-geo_cluster = int(map_df.set_index("station_id").loc[station_id, "geo_cluster"])
-st.write(f"**Cluster:** `{geo_cluster}` • **Station:** `{station_id}`")
+cluster_id = int(map_df.set_index("station_id").loc[station_id, "cluster_id"])
+st.write(f"**Cluster:** `{cluster_id}` • **Station:** `{station_id}`")
 
 # Artifacts (ưu tiên theo cụm, fallback global)
-model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts(geo_cluster)
+model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts(cluster_id)
 
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
@@ -213,5 +221,3 @@ with st.expander("Export"):
         file_name=f"forecast_station_{station_id}.csv",
         mime="text/csv"
     )
-
-
