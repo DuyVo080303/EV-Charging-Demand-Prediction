@@ -27,42 +27,57 @@ st.caption("Select a station, adjust external factors → get a **forecast line 
 def load_history(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, parse_dates=[TIME_COL])
     df = df.sort_values([ID_COL, TIME_COL]).reset_index(drop=True)
-    # Kiểm tra cột tối thiểu
     needed = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     miss = [c for c in needed if c not in df.columns]
     if miss:
-        raise ValueError(f"Column is missing in history.csv: {miss}")
+        raise ValueError(f"history.csv thiếu cột: {miss}")
     return df
 
 @st.cache_data(show_spinner=False)
 def load_station_cluster_map(path: str) -> pd.DataFrame:
     m = pd.read_csv(path)
-    if not {"station_id","geo_cluster"}.issubset(m.columns):
-        raise ValueError("station_to_cluster.csv cần có cột: station_id, geo_cluster")
-    return m
+    if not {"station_id", "geo_cluster"}.issubset(m.columns):
+        raise ValueError("station_to_cluster.csv cần cột: station_id, geo_cluster")
+    # Ép kiểu và validate
+    m["geo_cluster"] = pd.to_numeric(m["geo_cluster"], errors="coerce")
+    if m["geo_cluster"].isna().any():
+        bad = m[m["geo_cluster"].isna()]["station_id"].tolist()[:10]
+        raise ValueError(f"Có NaN ở geo_cluster (ví dụ station_id: {bad})")
+    if (m["geo_cluster"] < 0).any():
+        bad = m[m["geo_cluster"] < 0]["station_id"].tolist()[:10]
+        raise ValueError(f"Có giá trị âm (-1) ở geo_cluster (ví dụ station_id: {bad})")
+    # Đảm bảo 1-1
+    dup = m.duplicated("station_id", keep=False)
+    if dup.any():
+        raise ValueError("station_to_cluster.csv có station_id trùng lặp.")
+    return m[["station_id", "geo_cluster"]]
 
 def cluster_dir(cid: int) -> str:
     return os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{cid}")
 
+# ================== STRICT CLUSTER ARTIFACTS (NO GLOBAL) ==================
 @st.cache_resource(show_spinner=False)
-def load_artifacts(geo_cluster):
-    """
-    Trả về (model, scaler, tail_scaled_or_None, seq_len, n_feat).
-    Ưu tiên artifacts theo cụm nếu có; nếu không, rơi về global.
-    """
-    # 1) Thử cụm
-    if geo_cluster is not None:
-        cdir = cluster_dir(geo_cluster)
-        mpath = os.path.join(cdir, "model_gru.keras")
-        spath = os.path.join(cdir, "scaler.joblib")
-        tpath = os.path.join(cdir, "tail.npy")
-        if os.path.exists(mpath) and os.path.exists(spath):
-            model = load_model(mpath)
-            scaler = joblib.load(spath)
-            tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
-            seq_len = model.input_shape[1]
-            n_feat = model.input_shape[2]
-            return model, scaler, tail_scaled, seq_len, n_feat
+def load_artifacts_for_cluster(geo_cluster: int):
+    cdir = cluster_dir(int(geo_cluster))
+    mpath = os.path.join(cdir, "model_gru.keras")
+    spath = os.path.join(cdir, "scaler.joblib")
+    tpath = os.path.join(cdir, "tail.npy")  # optional
+
+    # Bắt buộc phải có model + scaler của CỤM
+    missing = []
+    if not os.path.exists(mpath): missing.append(mpath)
+    if not os.path.exists(spath): missing.append(spath)
+    if missing:
+        raise FileNotFoundError(
+            "Thiếu artifacts theo cụm. Cần các file sau:\n" + "\n".join(missing)
+        )
+
+    model = load_model(mpath)
+    scaler = joblib.load(spath)
+    tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
+    seq_len = model.input_shape[1]
+    n_feat  = model.input_shape[2]
+    return model, scaler, tail_scaled, seq_len, n_feat
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
@@ -142,19 +157,24 @@ w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
 hist_path = "history.csv"
-map_path = "station_to_cluster.csv"
+map_path  = "station_to_cluster.csv"
 
 df_hist = load_history(hist_path)
-map_df = load_station_cluster_map(map_path)
+map_df  = load_station_cluster_map(map_path)
 
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
 
-geo_cluster = int(map_df.set_index("station_id").loc[station_id, "geo_cluster"])
+# Lấy geo_cluster (bắt buộc tồn tại, >=0, duy nhất)
+row = map_df.loc[map_df["station_id"] == station_id, "geo_cluster"]
+if row.empty:
+    raise KeyError(f"Không tìm thấy geo_cluster cho station_id={station_id} trong station_to_cluster.csv")
+geo_cluster = int(row.iloc[0])  # an toàn vì đã validate ở loader
+
 st.write(f"**Cluster:** `{geo_cluster}` • **Station:** `{station_id}`")
 
-# Artifacts (ưu tiên theo cụm, fallback global)
-model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts(geo_cluster)
+# Chỉ dùng artifacts theo CỤM
+model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(geo_cluster)
 
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
