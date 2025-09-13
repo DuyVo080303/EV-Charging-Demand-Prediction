@@ -65,7 +65,7 @@ def load_artifacts_for_cluster(geo_cluster: int):
     tried = []
     for cdir in cluster_dir_candidates(geo_cluster):
         mpath = os.path.join(cdir, "model_gru.keras")
-        spath = os.path.join(cdir, "scaler.joblib")
+        spath = os.path.join(cdir, "scaler_all.joblib")
         tpath = os.path.join(cdir, "tail.npy")
         tried.append((cdir, mpath, spath, tpath))
         if os.path.exists(mpath) and os.path.exists(spath):
