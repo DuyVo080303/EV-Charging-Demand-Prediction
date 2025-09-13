@@ -152,7 +152,7 @@ w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
 hist_path = 'history.csv'
-map_path = ''
+map_path = 'station_to_cluster.csv'
 
 df_hist = load_history(hist_path)
 map_df = load_station_cluster_map(map_path)
