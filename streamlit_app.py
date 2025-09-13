@@ -99,25 +99,38 @@ def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
     return flat_scaled.reshape(h, w)
 
 def forecast_with_exog(model, scaler, exog_scaled, seed_scaled, horizon):
+    """
+    Dự báo với mô hình GRU, sử dụng exog features để ảnh hưởng đến dự báo từng bước.
+    """
     seq_len, n_feat = seed_scaled.shape
     seq = seed_scaled.copy()
     out_scaled = []
 
     for t in range(horizon):
-        exog_input = exog_scaled[t]
-        next_input = np.append(seq[-seq_len:, 0], exog_input)
-        x = next_input.reshape(1, seq_len + 1, n_feat)
-        yhat_scaled = model.predict(x, verbose=0).ravel()[0]
+        exog_input = exog_scaled[t]  # lấy dòng t-th từ exog features
+        # Tạo đầu vào mới cho mô hình (chuỗi seed + exog)
+        next_input = np.append(seq[-seq_len:, 0], exog_input)  # ghép seed và exog lại với nhau
+
+        # Ensure next_input is reshaped properly for the model (batch_size, seq_len, n_feat)
+        x = next_input.reshape(1, seq_len, n_feat)  # reshape để phù hợp với input của GRU
+
+        # Dự báo target (yhat_scaled)
+        yhat_scaled = model.predict(x, verbose=0).ravel()[0]  # lấy giá trị đầu tiên
+
+        # Ghép bước tiếp theo vào chuỗi
         next_vec = np.empty((n_feat,), dtype=float)
-        next_vec[0] = yhat_scaled
-        next_vec[1:] = exog_input
-        seq = np.vstack([seq, next_vec])
+        next_vec[0] = yhat_scaled  # target
+        next_vec[1:] = exog_input  # exog (đã được scaled)
+        seq = np.vstack([seq, next_vec])  # thêm giá trị mới vào chuỗi
+
         out_scaled.append(yhat_scaled)
 
+    # Tạo mảng dummy để chuyển đổi về giá trị ban đầu
     dummy = np.zeros((horizon, n_feat))
     dummy[:, 0] = np.array(out_scaled)
     inv = scaler.inverse_transform(dummy)[:, 0]
     return inv
+
 
 # ==========/ SIDEBAR ==========
 st.sidebar.subheader("Data paths")
