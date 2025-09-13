@@ -210,6 +210,10 @@ map_df  = load_station_cluster_map(map_path)
 with st.expander("👀 Xem toàn bộ history.csv"):
     st.dataframe(df_hist, use_container_width=True)
 
+if TARGET_COL not in df_hist.columns:
+    st.error(f"Không tìm thấy cột {TARGET_COL} trong history.csv")
+    st.stop()
+
 
 # Đồng bộ kiểu station_id giữa 2 file
 try:
