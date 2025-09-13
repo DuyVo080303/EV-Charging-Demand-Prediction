@@ -207,6 +207,10 @@ map_path  = "station_to_cluster.csv"
 df_hist = load_history(hist_path)
 map_df  = load_station_cluster_map(map_path)
 
+with st.expander("👀 Xem toàn bộ history.csv"):
+    st.dataframe(df_hist, use_container_width=True)
+
+
 # Đồng bộ kiểu station_id giữa 2 file
 try:
     df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="raise")
