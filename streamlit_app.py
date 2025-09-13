@@ -103,6 +103,14 @@ def load_artifacts_for_cluster(geo_cluster: int):
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     return df[cols].copy()
+  
+def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dict) -> pd.DataFrame:
+    rows = []
+    for _ in range(horizon):
+        r = {c: base_row.get(c, np.nan) for c in EXOG_COLS}
+        r.update(overrides)
+        rows.append(r)
+    return pd.DataFrame(rows)
 
 
 def build_exog_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
