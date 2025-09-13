@@ -290,11 +290,11 @@ df_plot_hist = pd.DataFrame({
     "type": "History"
 })
 
-#df_plot_fcst = pd.DataFrame({
- #   "timestamp": future_times,
-  #  "value": yhat,
-   # "type": "Forecast"
-#})
+df_plot_fcst = pd.DataFrame({
+    "timestamp": future_times,
+    "value": yhat,
+    "type": "Forecast"
+})
 df_plot = pd.concat([df_plot_hist], ignore_index=True)
 
 chart = alt.Chart(df_plot).mark_line().encode(
