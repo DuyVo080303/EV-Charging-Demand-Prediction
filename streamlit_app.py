@@ -126,6 +126,22 @@ def forecast_with_exog(model, scaler, exog_scaled, seed_scaled, horizon):
     inv = scaler.inverse_transform(dummy)[:, 0]
     return inv
 
+def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.ndarray:
+    """
+    Trả về exog tương lai đã scale theo đúng cách flatten-1-cột.
+    Kết quả shape: (H, n_feat-1) tương ứng các EXOG.
+    """
+    # Convert EXOG features thành mảng numpy
+    ex = future_exog_df[EXOG_COLS].to_numpy().astype(float)  # (H, len(EXOG))
+    
+    # Kiểm tra kích thước của ex
+    st.write(f"Shape of ex: {ex.shape}")
+    
+    # Scale exog với scaler đã huấn luyện
+    ex_scaled = _scale_matrix_like_training(ex, scaler)
+    
+    return ex_scaled  # (H, len(EXOG)) == (H, n_feat-1)
+
 # ========== SIDEBAR ==========
 st.sidebar.subheader("Data paths")
 hist_path = st.sidebar.text_input("history.csv", "history.csv")
