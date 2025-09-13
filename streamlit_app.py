@@ -102,34 +102,35 @@ def forecast_with_exog(model, scaler, exog_scaled, seed_scaled, horizon):
     """
     Dự báo với mô hình GRU, sử dụng exog features để ảnh hưởng đến dự báo từng bước.
     """
-    seq_len, n_feat = seed_scaled.shape
-    seq = seed_scaled.copy()
-    out_scaled = []
+    seq_len, n_feat = seed_scaled.shape  # seq_len là độ dài chuỗi, n_feat là số đặc trưng
+    seq = seed_scaled.copy()  # Sao chép seed_scaled để cập nhật dần
+    out_scaled = []  # Danh sách để lưu kết quả dự báo
 
     for t in range(horizon):
-        exog_input = exog_scaled[t]  # lấy dòng t-th từ exog features
+        exog_input = exog_scaled[t]  # Lấy dòng t-th từ exog features
         # Tạo đầu vào mới cho mô hình (chuỗi seed + exog)
-        next_input = np.append(seq[-seq_len:, 0], exog_input)  # ghép seed và exog lại với nhau
+        next_input = np.append(seq[-seq_len:, 0], exog_input)  # Ghép seed và exog lại với nhau
 
         # Ensure next_input is reshaped properly for the model (batch_size, seq_len, n_feat)
-        x = next_input.reshape(1, seq_len, n_feat)  # reshape để phù hợp với input của GRU
+        x = next_input.reshape(1, seq_len, n_feat)  # reshaping để phù hợp với input của GRU
 
         # Dự báo target (yhat_scaled)
-        yhat_scaled = model.predict(x, verbose=0).ravel()[0]  # lấy giá trị đầu tiên
+        yhat_scaled = model.predict(x, verbose=0).ravel()[0]  # lấy giá trị dự báo đầu tiên
 
         # Ghép bước tiếp theo vào chuỗi
-        next_vec = np.empty((n_feat,), dtype=float)
-        next_vec[0] = yhat_scaled  # target
-        next_vec[1:] = exog_input  # exog (đã được scaled)
-        seq = np.vstack([seq, next_vec])  # thêm giá trị mới vào chuỗi
+        next_vec = np.empty((n_feat,), dtype=float)  # Tạo một mảng rỗng cho vector tiếp theo
+        next_vec[0] = yhat_scaled  # Đặt giá trị dự báo vào vị trí đầu tiên
+        next_vec[1:] = exog_input  # Đặt exog vào phần còn lại của next_vec
+        seq = np.vstack([seq, next_vec])  # Thêm giá trị tiếp theo vào chuỗi
 
-        out_scaled.append(yhat_scaled)
+        out_scaled.append(yhat_scaled)  # Lưu giá trị dự báo vào out_scaled
 
     # Tạo mảng dummy để chuyển đổi về giá trị ban đầu
-    dummy = np.zeros((horizon, n_feat))
-    dummy[:, 0] = np.array(out_scaled)
-    inv = scaler.inverse_transform(dummy)[:, 0]
-    return inv
+    dummy = np.zeros((horizon, n_feat))  # Khởi tạo mảng rỗng cho dummy
+    dummy[:, 0] = np.array(out_scaled)  # Đặt giá trị dự báo vào cột đầu tiên của dummy
+    inv = scaler.inverse_transform(dummy)[:, 0]  # Đảo ngược giá trị dự báo bằng scaler
+    return inv  # Trả về kết quả dự báo đã được đảo ngược
+
 
 
 # ==========/ SIDEBAR ==========
@@ -147,9 +148,11 @@ h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
-df_hist = load_history(hist_path)
-map_df  = load_station_cluster_map(map_path)
+# ========== Load and preprocess data ==========
+df_hist = load_history("history.csv")
+map_df = load_station_cluster_map("station_to_cluster.csv")
 
+# Check if target column exists
 if TARGET_COL not in df_hist.columns:
     st.error(f"Không tìm thấy cột {TARGET_COL} trong history.csv")
     st.stop()
@@ -158,27 +161,32 @@ if TARGET_COL not in df_hist.columns:
 df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="raise")
 map_df["station_id"] = pd.to_numeric(map_df["station_id"], errors="raise")
 
+# Select station ID
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
 
+# Get geo_cluster for the selected station
 row = map_df.loc[map_df["station_id"] == station_id, "geo_cluster"]
 if row.empty:
-    st.error(f"Không tìm thấy geo_cluster cho station_id={station_id} trong station_to_cluster.csv")
+    st.error(f"Không tìm thấy geo_cluster cho station_id={station_id}")
     st.stop()
 geo_cluster = int(row.iloc[0])
 st.write(f"**Cluster:** `{geo_cluster}` • **Station:** `{station_id}`")
 
+# Load model, scaler, and other artifacts
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(geo_cluster)
 
+# Build feature matrix for historical data
 df_feat = build_feature_matrix(df_hist)
 
+# If tail.npy exists and matches the required shape, use it, else build from history
 if tail_scaled_opt is not None and tail_scaled_opt.shape == (SEQ_LEN, N_FEAT):
     seed_scaled = tail_scaled_opt
 else:
     seed_scaled = take_last_sequence_scaled(df_feat, station_id, SEQ_LEN, scaler)
 
-# Lấy exog hiện tại làm template + override từ sidebar
-last_row = (df_feat[df_feat[ID_COL] == station_id].tail(1)).iloc[0]
+# Get current exog template and override with sidebar inputs
+last_row = df_feat[df_feat[ID_COL] == station_id].tail(1).iloc[0]
 overrides = {
     "public_holiday": int(ph),
     "school_holiday": int(sh),
@@ -187,19 +195,22 @@ overrides = {
     "Avg_Humidity": float(h_avg),
     "Avg_Wind": float(w_avg),
 }
+
+# Generate exog features for the forecast horizon
 future_exog = make_future_exog_overrides(last_row, horizon, overrides)
 
-# Scale EXOG tương lai theo cách 1-cột (đã sửa trong hàm)
+# Scale the exog features for the future
 exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
 
-# ==========/ FORECAST ==========
+# ==========/ Forecast with the model and exog features ==========
 yhat = forecast_with_exog(model, scaler, exog_future_scaled, seed_scaled, horizon)
 
-# ==========/ PLOT ==========
+# ==========/ Plotting the results ==========
+# Prepare historical and forecast data for plotting
 hist_tail = df_hist[df_hist[ID_COL] == station_id].sort_values(TIME_COL).tail(SEQ_LEN).copy()
 t0 = hist_tail[TIME_COL].iloc[-1]
 freq = infer_freq(hist_tail[TIME_COL])
-future_times = [t0 + (i+1)*freq for i in range(horizon)]
+future_times = [t0 + (i+1) * freq for i in range(horizon)]
 
 df_plot_hist = pd.DataFrame({
     "timestamp": hist_tail[TIME_COL],
@@ -213,17 +224,20 @@ df_plot_fcst = pd.DataFrame({
     "type": "Forecast"
 })
 
+# Combine historical and forecast data for plotting
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
+# Create the plot
 chart = alt.Chart(df_plot).mark_line().encode(
     x=alt.X("timestamp:T", title="Time"),
     y=alt.Y("value:Q", title="Demand (kWh)"),
-    color=alt.Color("type:N", sort=["History","Forecast"])
+    color=alt.Color("type:N", sort=["History", "Forecast"])
 ).properties(width="container", height=380, title=f"Station {station_id} — GRU Forecast ({horizon} steps)")
 
+# Display the chart
 st.altair_chart(chart, use_container_width=True)
 
-# ==========/ EXPORT ==========
+# ==========/ Export the forecast to CSV ==========
 with st.expander("Export"):
     st.download_button(
         "Download Forecast CSV",
@@ -231,3 +245,4 @@ with st.expander("Export"):
         file_name=f"forecast_station_{station_id}.csv",
         mime="text/csv"
     )
+
