@@ -285,17 +285,17 @@ freq = infer_freq(hist_tail[TIME_COL])
 future_times = [t0 + (i+1)*freq for i in range(horizon)]
 
 df_plot_hist = pd.DataFrame({
-    "timestamp": df_hist [TIME_COL],
-    "value": df_hist [TARGET_COL],
+    "timestamp": hist_tail [TIME_COL],
+    "value": hist_tail [TARGET_COL],
     "type": "History"
 })
 
-#df_plot_fcst = pd.DataFrame({
- #   "timestamp": future_times,
-  #  "value": yhat,
-   # "type": "Forecast"
-#})
-df_plot = pd.concat([df_plot_hist], ignore_index=True)
+df_plot_fcst = pd.DataFrame({
+    "timestamp": future_times,
+    "value": yhat,
+    "type": "Forecast"
+})
+df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
 chart = alt.Chart(df_plot).mark_line().encode(
     x=alt.X("timestamp:T", title="Time"),
