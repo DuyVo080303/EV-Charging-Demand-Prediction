@@ -37,8 +37,8 @@ def load_history(path: str) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_station_cluster_map(path: str) -> pd.DataFrame:
     m = pd.read_csv(path)
-    if not {"station_id","cluster_id"}.issubset(m.columns):
-        raise ValueError("station_to_cluster.csv cần có cột: station_id, cluster_id")
+    if not {"station_id","geo_cluster"}.issubset(m.columns):
+        raise ValueError("station_to_cluster.csv cần có cột: station_id, geo_cluster")
     return m
 
 def cluster_dir(cid: int) -> str:
@@ -151,11 +151,11 @@ map_df = load_station_cluster_map(map_path)
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
 
-cluster_id = int(map_df.set_index("station_id").loc[station_id, "cluster_id"])
-st.write(f"**Cluster:** `{cluster_id}` • **Station:** `{station_id}`")
+geo_cluster = int(map_df.set_index("station_id").loc[station_id, "geo_cluster"])
+st.write(f"**Cluster:** `{geo_cluster}` • **Station:** `{station_id}`")
 
 # Artifacts (ưu tiên theo cụm, fallback global)
-model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts(cluster_id)
+model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts(geo_cluster)
 
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
