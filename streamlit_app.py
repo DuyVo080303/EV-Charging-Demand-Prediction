@@ -154,7 +154,7 @@ def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.n
     ex_scaled = _scale_matrix_like_training(ex, scaler)       # scale từng phần tử theo scaler 1 cột
     return ex_scaled  # (H, len(EXOG)) == (H, n_feat-1)
 
-def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scaled: np.ndarray, horizon: int) -> np.ndarray:
+def forecast_direct_multistep(model, scaler, seed_scaled, exog_future_scaled, horizon):
     """
     seed_scaled: (seq_len, n_feat) đã scale (theo cách flatten-1-cột).
     exog_future_scaled: (H, n_feat-1) đã scale (flatten-1-cột).
@@ -165,18 +165,26 @@ def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scale
     out_scaled = []
 
     for t in range(horizon):
-        x = seq[-seq_len:].reshape(1, seq_len, n_feat)
-        yhat_scaled = model.predict(x, verbose=0).ravel()[0]   # giá trị TARGET đã ở “không gian scaled”
-        # ghép bước kế tiếp vào chuỗi
+        # Sử dụng exog cho bước tiếp theo
+        exog_input = exog_future_scaled[t]  # lấy row t-th từ exog tương lai
+        # Tạo đầu vào mới cho mô hình (chuỗi seed + exog)
+        next_input = np.append(seq[-seq_len:, 0], exog_input)  # (seq_len + exog)
+        x = next_input.reshape(1, seq_len + 1, n_feat)  # reshape để phù hợp với input của GRU
+
+        # Dự báo target (yhat_scaled)
+        yhat_scaled = model.predict(x, verbose=0).ravel()[0]  # lấy giá trị đầu tiên
+        # Ghép bước tiếp theo vào chuỗi
         next_vec = np.empty((n_feat,), dtype=float)
-        next_vec[0] = yhat_scaled
-        next_vec[1:] = exog_future_scaled[t]
-        seq = np.vstack([seq, next_vec])
+        next_vec[0] = yhat_scaled  # target
+        next_vec[1:] = exog_input  # exog (đã được scaled)
+        seq = np.vstack([seq, next_vec])  # thêm giá trị mới vào chuỗi
+
         out_scaled.append(yhat_scaled)
 
     # Inverse target theo đúng cách scaler 1 cột
-    yhat_scaled_arr = np.array(out_scaled, dtype=float)        # (H,)
-    inv = _inverse_vector_like_training(yhat_scaled_arr, scaler)  # (H,)
+    dummy = np.zeros((horizon, n_feat))
+    dummy[:, 0] = np.array(out_scaled)  # target
+    inv = scaler.inverse_transform(dummy)[:, 0]  # chuyển về giá trị ban đầu
     return inv
 
 def infer_freq(ts: pd.Series) -> pd.Timedelta:
@@ -184,6 +192,16 @@ def infer_freq(ts: pd.Series) -> pd.Timedelta:
     if diffs.notna().any():
         return diffs.mode().iloc[0] if not diffs.mode().empty else diffs.median()
     return pd.Timedelta(hours=1)
+  
+def take_last_sequence_scaled(df_feat: pd.DataFrame, station_id, seq_len: int, scaler) -> np.ndarray:
+    """
+    Lấy SEQ_LEN cuối cùng của station và transform theo scaler → (seq_len, n_feat).
+    """
+    d = df_feat[df_feat[ID_COL] == station_id].tail(seq_len)
+    if len(d) < seq_len:
+        raise ValueError(f"Lịch sử cho station {station_id} < SEQ_LEN={seq_len}.")
+    mat = d[[TARGET_COL] + EXOG_COLS].to_numpy().astype(float)  # Lấy target và exog features
+    return _scale_matrix_like_training(mat, scaler)  # scale tất cả cùng một lúc
 
 # ==========/ SIDEBAR ==========
 st.sidebar.subheader("Data paths")
@@ -276,7 +294,7 @@ future_exog = make_future_exog_overrides(last_row, horizon, overrides)
 exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
 
 # ==========/ FORECAST ==========
-yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=horizon)
+yhat = forecast_direct_multistep(model, scaler, seed_scaled,exog_future_scaled, horizon=horizon)
 
 # ==========/ PLOT ==========
 hist_tail = df_hist[df_hist[ID_COL] == station_id].sort_values(TIME_COL).tail(SEQ_LEN).copy()
@@ -295,7 +313,7 @@ df_plot_fcst = pd.DataFrame({
     "value": yhat,
     "type": "Forecast"
 })
-df_plot = pd.concat([df_plot_hist], ignore_index=True)
+df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
 chart = alt.Chart(df_plot).mark_line().encode(
     x=alt.X("timestamp:T", title="Time"),
