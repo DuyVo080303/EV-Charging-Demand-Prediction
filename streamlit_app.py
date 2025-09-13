@@ -5,7 +5,6 @@ import streamlit as st
 import altair as alt
 from datetime import timedelta
 from tensorflow.keras.models import load_model
-from typing import Optional
 import joblib
 
 # ========== PAGE SETUP ==========
@@ -46,7 +45,7 @@ def cluster_dir(cid: int) -> str:
     return os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{cid}")
 
 @st.cache_resource(show_spinner=False)
-def load_artifacts(geo_cluster: Optional[int]):
+def load_artifacts(geo_cluster):
     if geo_cluster is not None:
         cdir = os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{geo_cluster}")
         mpath, spath, tpath = (os.path.join(cdir, "model_gru.keras"),
