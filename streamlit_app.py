@@ -285,8 +285,8 @@ freq = infer_freq(hist_tail[TIME_COL])
 future_times = [t0 + (i+1)*freq for i in range(horizon)]
 
 df_plot_hist = pd.DataFrame({
-    "timestamp": hist_tail[TIME_COL],
-    "value": hist_tail[TARGET_COL],
+    "timestamp": df_hist [TIME_COL],
+    "value": df_hist [TARGET_COL],
     "type": "History"
 })
 
