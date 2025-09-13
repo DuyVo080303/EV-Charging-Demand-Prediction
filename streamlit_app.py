@@ -8,7 +8,7 @@ from tensorflow.keras.models import load_model
 import joblib
 
 # ========== PAGE SETUP ==========
-TIME_COL = "Date"
+TIME_COL = "datetime"
 ID_COL = "station_id"
 TARGET_COL = "estimated_demand_kWh"
 EXOG_COLS = ["public_holiday","school_holiday","is_weekend",
