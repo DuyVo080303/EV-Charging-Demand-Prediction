@@ -52,8 +52,11 @@ def load_station_cluster_map(path: str) -> pd.DataFrame:
         raise ValueError("station_to_cluster.csv có station_id trùng lặp.")
     return m[["station_id", "geo_cluster"]]
 
+CLUSTER_ARTIFACT_ROOT = os.path.join("artifacts", "clusters")
+
 def cluster_dir(cid: int) -> str:
-    return os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{cid}")
+    # artifacts/clusters/<cid>
+    return os.path.join(CLUSTER_ARTIFACT_ROOT, str(int(cid)))
 
 # ================== STRICT CLUSTER ARTIFACTS (NO GLOBAL) ==================
 @st.cache_resource(show_spinner=False)
