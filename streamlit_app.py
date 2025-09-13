@@ -84,6 +84,14 @@ def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.n
     ex_scaled = _scale_matrix_like_training(ex, scaler)
     return ex_scaled
 
+def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dict) -> pd.DataFrame:
+    rows = []
+    for _ in range(horizon):
+        r = {c: base_row.get(c, np.nan) for c in EXOG_COLS}
+        r.update(overrides)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
 def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
     h, w = mat.shape
     flat = mat.reshape(-1, 1)
