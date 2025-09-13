@@ -45,14 +45,14 @@ def cluster_dir(cid: int) -> str:
     return os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{cid}")
 
 @st.cache_resource(show_spinner=False)
-def load_artifacts(cluster_id: int | None):
+def load_artifacts(geo_cluster: int | None):
     """
     Trả về (model, scaler, tail_scaled_or_None, seq_len, n_feat).
     Ưu tiên artifacts theo cụm nếu có; nếu không, rơi về global.
     """
     # 1) Thử cụm
-    if cluster_id is not None:
-        cdir = cluster_dir(cluster_id)
+    if geo_cluster is not None:
+        cdir = cluster_dir(geo_cluster)
         mpath = os.path.join(cdir, "model_gru.keras")
         spath = os.path.join(cdir, "scaler.joblib")
         tpath = os.path.join(cdir, "tail.npy")
