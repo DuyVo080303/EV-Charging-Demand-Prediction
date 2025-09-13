@@ -100,6 +100,10 @@ def load_artifacts_for_cluster(geo_cluster: int):
     )
 
 
+def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
+    return df[cols].copy()
+
 
 def build_exog_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     """
