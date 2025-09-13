@@ -16,7 +16,7 @@ EXOG_COLS = ["public_holiday","school_holiday","is_weekend",
 
 GLOBAL_MODEL_PATH = "model_gru.keras"         # bạn đã cung cấp
 GLOBAL_SCALER_PATH = "scaler_all.joblib"      # bạn đã cung cấp
-GLOBAL_TAIL_PATH = "tail.npy"                 # optional (seed đã scale)
+GLOBAL_TAIL_PATH = "tail.npy"                 # optID_COLional (seed đã scale)
 CLUSTER_ARTIFACT_ROOT = "artifacts"  
 st.set_page_config(page_title="EVAT — GRU Forecast by Station", page_icon="⚡", layout="wide")
 st.title("⚡ EVAT — GRU Forecast per Cluster / Station")
@@ -167,11 +167,11 @@ w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 hist_path = "history.csv"
 map_path  = "station_to_cluster.csv"
 
-df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="coerce")
-map_df["station_id"] = pd.to_numeric(map_df["station_id"], errors="coerce")
-
 df_hist = load_history(hist_path)
 map_df  = load_station_cluster_map(map_path)
+
+df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="coerce")
+map_df["station_id"] = pd.to_numeric(map_df["station_id"], errors="coerce")
 
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
