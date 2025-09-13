@@ -1,11 +1,11 @@
 import os
+import json
 import numpy as np
 import pandas as pd
 import streamlit as st
 import altair as alt
 from datetime import timedelta
 from tensorflow.keras.models import load_model
-import joblib
 
 # ========== PAGE SETUP ==========
 TIME_COL = "Date"
@@ -14,10 +14,8 @@ TARGET_COL = "estimated_demand_kWh"
 EXOG_COLS = ["public_holiday","school_holiday","is_weekend",
              "Avg_Temp","Avg_Humidity","Avg_Wind"]
 
-GLOBAL_MODEL_PATH = "model_gru.keras"         # bạn đã cung cấp
-GLOBAL_SCALER_PATH = "scaler_all.joblib"      # bạn đã cung cấp
-GLOBAL_TAIL_PATH = "tail.npy"                 # optID_COLional (seed đã scale)
-CLUSTER_ARTIFACT_ROOT = "artifacts"  
+CLUSTER_ARTIFACT_ROOT = "artifacts"
+
 st.set_page_config(page_title="EVAT — GRU Forecast by Station", page_icon="⚡", layout="wide")
 st.title("⚡ EVAT — GRU Forecast per Cluster / Station")
 st.caption("Select a station, adjust external factors → get a **forecast line chart**.")
@@ -38,7 +36,6 @@ def load_station_cluster_map(path: str) -> pd.DataFrame:
     m = pd.read_csv(path)
     if not {"station_id", "geo_cluster"}.issubset(m.columns):
         raise ValueError("station_to_cluster.csv cần cột: station_id, geo_cluster")
-    # Ép kiểu và validate
     m["geo_cluster"] = pd.to_numeric(m["geo_cluster"], errors="coerce")
     if m["geo_cluster"].isna().any():
         bad = m[m["geo_cluster"].isna()]["station_id"].tolist()[:10]
@@ -46,7 +43,6 @@ def load_station_cluster_map(path: str) -> pd.DataFrame:
     if (m["geo_cluster"] < 0).any():
         bad = m[m["geo_cluster"] < 0]["station_id"].tolist()[:10]
         raise ValueError(f"Có giá trị âm (-1) ở geo_cluster (ví dụ station_id: {bad})")
-    # Đảm bảo 1-1
     dup = m.duplicated("station_id", keep=False)
     if dup.any():
         raise ValueError("station_to_cluster.csv có station_id trùng lặp.")
@@ -55,110 +51,101 @@ def load_station_cluster_map(path: str) -> pd.DataFrame:
 def cluster_dir_candidates(cid: int) -> list:
     cid = int(cid)
     return [
-        os.path.join("artifacts", "clusters", str(cid)),   # cấu trúc của bạn
-        os.path.join("artifacts", f"cluster_{cid}"),       # phòng khi có cấu trúc cũ
+        os.path.join("artifacts", "clusters", str(cid)),
+        os.path.join("artifacts", f"cluster_{cid}"),
     ]
+
+def load_minmax_params(cdir: str):
+    jpath = os.path.join(cdir, "minmax_params.json")
+    if not os.path.exists(jpath):
+        return None
+    with open(jpath, "r", encoding="utf-8") as f:
+        params = json.load(f)
+    cols = params["columns"]
+    vmin = np.asarray(params["min"], dtype=float)
+    vmax = np.asarray(params["max"], dtype=float)
+    return {"columns": cols, "min": vmin, "max": vmax}
 
 @st.cache_resource(show_spinner=False)
 def load_artifacts_for_cluster(geo_cluster: int):
-    # Thử các đường dẫn ứng viên
     tried = []
     for cdir in cluster_dir_candidates(geo_cluster):
         mpath = os.path.join(cdir, "model_gru.keras")
-        spath = os.path.join(cdir, "scaler_all.joblib")
         tpath = os.path.join(cdir, "tail.npy")
-        tried.append((cdir, mpath, spath, tpath))
-        if os.path.exists(mpath) and os.path.exists(spath):
-            # Debug: liệt kê thư mục dùng
+        tried.append((cdir, mpath, tpath))
+        if os.path.exists(mpath):
             st.write("✅ Using cluster artifacts from:", cdir)
             try:
                 st.write("Contents:", os.listdir(cdir))
             except Exception:
                 pass
             model = load_model(mpath)
-            scaler = joblib.load(spath)
             tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
-            return model, scaler, tail_scaled, model.input_shape[1], model.input_shape[2]
+            mm = load_minmax_params(cdir)
+            if mm is None:
+                raise FileNotFoundError(
+                    f"Thiếu 'minmax_params.json' cho cụm {geo_cluster}. "
+                    f"Hãy xuất min/max theo thứ tự cột [{TARGET_COL}] + EXOG_COLS trong thư mục: {cdir}"
+                )
+            return {
+                "model": model,
+                "minmax": mm,
+                "tail": tail_scaled,
+                "SEQ_LEN": model.input_shape[1],
+                "N_FEAT": model.input_shape[2],
+                "cdir": cdir,
+            }
 
-    # Nếu không tìm thấy, in debug rõ ràng rồi raise
     st.write("❌ Could not find artifacts for cluster:", geo_cluster)
     st.write("CWD:", os.getcwd())
-    for cdir, mpath, spath, _ in tried:
-        st.write("Tried:", cdir,
-                 "| model exists?", os.path.exists(mpath),
-                 "| scaler exists?", os.path.exists(spath))
-        # Thử liệt kê để nhìn thấy thực tế trong deploy
+    for cdir, mpath, _ in tried:
+        st.write("Tried:", cdir, "| model exists?", os.path.exists(mpath))
         if os.path.exists(cdir):
             try:
                 st.write("Dir contents:", os.listdir(cdir))
             except Exception:
                 pass
     raise FileNotFoundError(
-        f"Không tìm thấy model/scaler cho cụm {geo_cluster}. "
-        f"Yêu cầu các file 'model_gru.keras' và 'scaler.joblib' trong một trong các thư mục: "
+        f"Không tìm thấy model cho cụm {geo_cluster}. "
+        f"Yêu cầu 'model_gru.keras' và 'minmax_params.json' trong một trong các thư mục: "
         + ", ".join(cluster_dir_candidates(geo_cluster))
     )
-
-
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     return df[cols].copy()
 
-def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
-    """
-    Scale theo cách bạn đã train:
-    - Flatten toàn bộ ma trận về (-1, 1)
-    - scaler.transform(...)
-    - Reshape lại kích thước ban đầu
-    """
-    h, w = mat.shape
-    flat = mat.reshape(-1, 1)
-    flat_scaled = scaler.transform(flat)
-    return flat_scaled.reshape(h, w)
+# ===== Min–Max per-feature (KHÔNG FLATTEN) =====
+def _scale_matrix_per_feature(mat: np.ndarray, vmin: np.ndarray, vmax: np.ndarray) -> np.ndarray:
+    # mat shape: (n_rows, n_feat) theo thứ tự [TARGET] + EXOG_COLS
+    scale = (vmax - vmin)
+    scale[scale == 0] = 1.0
+    out = (mat - vmin) / scale
+    return np.clip(out, 0.0, 1.0)
 
-def _inverse_vector_like_training(vec: np.ndarray, scaler) -> np.ndarray:
-    """
-    Inverse cho một vector (horizon,) theo cách bạn đã train (scaler 1 cột).
-    """
-    flat = vec.reshape(-1, 1)
-    inv = scaler.inverse_transform(flat)
-    return inv.reshape(-1)
+def _inverse_target_per_feature(vec_scaled: np.ndarray, vmin_target: float, vmax_target: float) -> np.ndarray:
+    scale = (vmax_target - vmin_target)
+    if scale == 0:
+        scale = 1.0
+    return vec_scaled * scale + vmin_target
 
-def take_last_sequence_scaled(df_feat: pd.DataFrame, station_id, seq_len: int, scaler) -> np.ndarray:
-    """
-    Lấy SEQ_LEN cuối cùng của station → (seq_len, n_feat),
-    rồi scale theo cách flatten 1-cột (giống lúc training).
-    """
+def take_last_sequence_scaled_minmax(df_feat: pd.DataFrame, station_id, seq_len: int, mm) -> np.ndarray:
     d = df_feat[df_feat[ID_COL] == station_id].tail(seq_len)
     if len(d) < seq_len:
         raise ValueError(f"Lịch sử cho station {station_id} < SEQ_LEN={seq_len}.")
-    # (seq_len, n_feat) với n_feat = 1 + len(EXOG_COLS)
-    mat = d[[TARGET_COL] + EXOG_COLS].to_numpy().astype(float)
-    return _scale_matrix_like_training(mat, scaler)
+    cols = [TARGET_COL] + EXOG_COLS
+    mat = d[cols].to_numpy(dtype=float)  # (seq_len, n_feat)
+    return _scale_matrix_per_feature(mat, mm["min"], mm["max"])
 
-def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dict) -> pd.DataFrame:
-    rows = []
-    for _ in range(horizon):
-        r = {c: base_row.get(c, np.nan) for c in EXOG_COLS}
-        r.update(overrides)
-        rows.append(r)
-    return pd.DataFrame(rows)
+def scale_future_exog_minmax(future_exog_df: pd.DataFrame, mm) -> np.ndarray:
+    ex = future_exog_df[EXOG_COLS].to_numpy(dtype=float)      # (H, len(EXOG))
+    return _scale_matrix_per_feature(ex, mm["min"][1:], mm["max"][1:])  # bỏ TARGET
 
-def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.ndarray:
+def recursive_forecast_minmax(model, seed_scaled: np.ndarray, exog_future_scaled: np.ndarray, horizon: int) -> np.ndarray:
     """
-    Trả về exog tương lai đã scale theo đúng cách flatten-1-cột.
-    Kết quả shape: (H, n_feat-1) tương ứng các EXOG.
-    """
-    ex = future_exog_df[EXOG_COLS].to_numpy().astype(float)   # (H, len(EXOG))
-    ex_scaled = _scale_matrix_like_training(ex, scaler)       # scale từng phần tử theo scaler 1 cột
-    return ex_scaled  # (H, len(EXOG)) == (H, n_feat-1)
-
-def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scaled: np.ndarray, horizon: int) -> np.ndarray:
-    """
-    seed_scaled: (seq_len, n_feat) đã scale (theo cách flatten-1-cột).
-    exog_future_scaled: (H, n_feat-1) đã scale (flatten-1-cột).
-    Trả về yhat (H,) đã inverse theo scaler 1 cột.
+    seed_scaled: (seq_len, n_feat) đã scale per-feature.
+    exog_future_scaled: (H, n_feat-1) cho EXOG (đã scale).
+    Trả về yhat_scaled (H,) trong miền [0,1].
     """
     seq_len, n_feat = seed_scaled.shape
     seq = seed_scaled.copy()
@@ -166,18 +153,14 @@ def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scale
 
     for t in range(horizon):
         x = seq[-seq_len:].reshape(1, seq_len, n_feat)
-        yhat_scaled = model.predict(x, verbose=0).ravel()[0]   # giá trị TARGET đã ở “không gian scaled”
-        # ghép bước kế tiếp vào chuỗi
+        yhat_scaled = model.predict(x, verbose=0).ravel()[0]   # y scaled
         next_vec = np.empty((n_feat,), dtype=float)
         next_vec[0] = yhat_scaled
         next_vec[1:] = exog_future_scaled[t]
         seq = np.vstack([seq, next_vec])
         out_scaled.append(yhat_scaled)
 
-    # Inverse target theo đúng cách scaler 1 cột
-    yhat_scaled_arr = np.array(out_scaled, dtype=float)        # (H,)
-    inv = _inverse_vector_like_training(yhat_scaled_arr, scaler)  # (H,)
-    return inv
+    return np.asarray(out_scaled, dtype=float)
 
 def infer_freq(ts: pd.Series) -> pd.Timedelta:
     diffs = ts.diff()
@@ -200,10 +183,6 @@ h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
-# ==========/ LOAD ==========
-hist_path = "history.csv"
-map_path  = "station_to_cluster.csv"
-
 df_hist = load_history(hist_path)
 map_df  = load_station_cluster_map(map_path)
 
@@ -213,7 +192,6 @@ with st.expander("👀 Xem toàn bộ history.csv"):
 if TARGET_COL not in df_hist.columns:
     st.error(f"Không tìm thấy cột {TARGET_COL} trong history.csv")
     st.stop()
-
 
 # Đồng bộ kiểu station_id giữa 2 file
 try:
@@ -226,7 +204,7 @@ except Exception:
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
 
-# Lấy geo_cluster (bắt buộc tồn tại, >=0, duy nhất)
+# Lấy geo_cluster
 row = map_df.loc[map_df["station_id"] == station_id, "geo_cluster"]
 if row.empty:
     st.error(f"Không tìm thấy geo_cluster cho station_id={station_id} trong station_to_cluster.csv")
@@ -234,16 +212,14 @@ if row.empty:
 geo_cluster = int(row.iloc[0])
 st.write(f"**Cluster:** `{geo_cluster}` • **Station:** `{station_id}`")
 
-# Chỉ dùng artifacts theo CỤM
-model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(geo_cluster)
+# Load artifacts (model + minmax)
+art = load_artifacts_for_cluster(geo_cluster)
+model = art["model"]
+mm = art["minmax"]
+SEQ_LEN = art["SEQ_LEN"]
+N_FEAT = art["N_FEAT"]
 
-# --- Kiểm tra khớp cấu hình với scaler 1-cột (flatten) ---
-n_in = getattr(scaler, "n_features_in_", None)
 expected_feats = 1 + len(EXOG_COLS)
-if n_in is not None and n_in != 1:
-    st.error(f"Scaler của cụm {geo_cluster} có n_features_in_={n_in}, "
-             f"nhưng pipeline training của bạn dùng scaler 1-cột. Hãy export scaler đúng pipeline.")
-    st.stop()
 if N_FEAT != expected_feats:
     st.error(f"Model N_FEAT={N_FEAT} nhưng app mong đợi {expected_feats} "
              f"(1 target + {len(EXOG_COLS)} exog). Kiểm tra lại kiến trúc/model cụm.")
@@ -252,15 +228,16 @@ if N_FEAT != expected_feats:
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
 
-# Nếu tail.npy đã scale đúng cách và shape khớp thì dùng, ngược lại tự dựng từ history
+# Nếu tail.npy đã scale per-feature và shape khớp thì dùng; không thì tự dựng
+tail_scaled_opt = art["tail"]
 if tail_scaled_opt is not None and tail_scaled_opt.shape == (SEQ_LEN, N_FEAT):
     seed_scaled = tail_scaled_opt
 else:
     if tail_scaled_opt is not None and tail_scaled_opt.shape != (SEQ_LEN, N_FEAT):
-        st.info("`tail.npy` không khớp shape model hoặc không đúng kiểu scale → sẽ tự dựng seed từ history.")
-    seed_scaled = take_last_sequence_scaled(df_feat, station_id, SEQ_LEN, scaler)
+        st.info("`tail.npy` không khớp shape model → sẽ tự dựng seed từ history.")
+    seed_scaled = take_last_sequence_scaled_minmax(df_feat, station_id, SEQ_LEN, mm)
 
-# Lấy exog hiện tại làm template + override từ sidebar
+# Tạo EXOG tương lai từ last_row + override (user có thể nhập 1 hàng vẫn OK)
 last_row = (df_feat[df_feat[ID_COL] == station_id].tail(1)).iloc[0]
 overrides = {
     "public_holiday": int(ph),
@@ -270,13 +247,20 @@ overrides = {
     "Avg_Humidity": float(h_avg),
     "Avg_Wind": float(w_avg),
 }
-future_exog = make_future_exog_overrides(last_row, horizon, overrides)
+def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dict) -> pd.DataFrame:
+    rows = []
+    for _ in range(horizon):
+        r = {c: base_row.get(c, np.nan) for c in EXOG_COLS}
+        r.update(overrides)
+        rows.append(r)
+    return pd.DataFrame(rows)
 
-# Scale EXOG tương lai theo cách 1-cột (đã sửa trong hàm)
-exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
+future_exog = make_future_exog_overrides(last_row, horizon, overrides)
+exog_future_scaled = scale_future_exog_minmax(future_exog, mm)
 
 # ==========/ FORECAST ==========
-yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=horizon)
+yhat_scaled = recursive_forecast_minmax(model, seed_scaled, exog_future_scaled, horizon=horizon)
+yhat = _inverse_target_per_feature(yhat_scaled, mm["min"][0], mm["max"][0])
 
 # ==========/ PLOT ==========
 hist_tail = df_hist[df_hist[ID_COL] == station_id].sort_values(TIME_COL).tail(SEQ_LEN).copy()
@@ -284,18 +268,18 @@ t0 = hist_tail[TIME_COL].iloc[-1]
 freq = infer_freq(hist_tail[TIME_COL])
 future_times = [t0 + (i+1)*freq for i in range(horizon)]
 
-df_plot_hist = pd.DataFrame({
-    "timestamp": df_hist [TIME_COL],
-    "value": df_hist [TARGET_COL],
-    "type": "History"
+# Lọc history theo station
+df_plot_hist = df_hist[df_hist[ID_COL] == station_id][[TIME_COL, TARGET_COL]].copy()
+df_plot_hist.columns = ["timestamp", "value"]
+df_plot_hist["type"] = "History"
+
+df_plot_fcst = pd.DataFrame({
+    "timestamp": future_times,
+    "value": yhat,
+    "type": "Forecast"
 })
 
-#df_plot_fcst = pd.DataFrame({
- #   "timestamp": future_times,
-  #  "value": yhat,
-   # "type": "Forecast"
-#})
-df_plot = pd.concat([df_plot_hist], ignore_index=True)
+df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
 chart = alt.Chart(df_plot).mark_line().encode(
     x=alt.X("timestamp:T", title="Time"),
