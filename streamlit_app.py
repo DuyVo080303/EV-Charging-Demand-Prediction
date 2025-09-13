@@ -151,7 +151,8 @@ h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
-hist_path = 
+hist_path = 'history.csv'
+map_path = ''
 
 df_hist = load_history(hist_path)
 map_df = load_station_cluster_map(map_path)
