@@ -105,13 +105,37 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     return df[cols].copy()
 
+def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
+    """
+    Scale theo cách bạn đã train:
+    - Flatten toàn bộ ma trận về (-1, 1)
+    - scaler.transform(...)
+    - Reshape lại kích thước ban đầu
+    """
+    h, w = mat.shape
+    flat = mat.reshape(-1, 1)
+    flat_scaled = scaler.transform(flat)
+    return flat_scaled.reshape(h, w)
+
+def _inverse_vector_like_training(vec: np.ndarray, scaler) -> np.ndarray:
+    """
+    Inverse cho một vector (horizon,) theo cách bạn đã train (scaler 1 cột).
+    """
+    flat = vec.reshape(-1, 1)
+    inv = scaler.inverse_transform(flat)
+    return inv.reshape(-1)
+
 def take_last_sequence_scaled(df_feat: pd.DataFrame, station_id, seq_len: int, scaler) -> np.ndarray:
-    """Lấy SEQ_LEN cuối cùng của station và transform theo scaler → (seq_len, n_feat)."""
+    """
+    Lấy SEQ_LEN cuối cùng của station → (seq_len, n_feat),
+    rồi scale theo cách flatten 1-cột (giống lúc training).
+    """
     d = df_feat[df_feat[ID_COL] == station_id].tail(seq_len)
     if len(d) < seq_len:
         raise ValueError(f"Lịch sử cho station {station_id} < SEQ_LEN={seq_len}.")
-    mat = d[[TARGET_COL] + EXOG_COLS].to_numpy()
-    return scaler.transform(mat)
+    # (seq_len, n_feat) với n_feat = 1 + len(EXOG_COLS)
+    mat = d[[TARGET_COL] + EXOG_COLS].to_numpy().astype(float)
+    return _scale_matrix_like_training(mat, scaler)
 
 def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dict) -> pd.DataFrame:
     rows = []
@@ -123,19 +147,18 @@ def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dic
 
 def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.ndarray:
     """
-    Trả về exog tương lai đã scale, shape (H, n_feat-1).
-    Giả định scaler fit trên trật tự cột: [TARGET] + EXOG_COLS
+    Trả về exog tương lai đã scale theo đúng cách flatten-1-cột.
+    Kết quả shape: (H, n_feat-1) tương ứng các EXOG.
     """
-    dummy = np.zeros((len(future_exog_df), n_feat))
-    dummy[:, 1:] = future_exog_df[EXOG_COLS].to_numpy()
-    scaled = scaler.transform(dummy)
-    return scaled[:, 1:]
+    ex = future_exog_df[EXOG_COLS].to_numpy().astype(float)   # (H, len(EXOG))
+    ex_scaled = _scale_matrix_like_training(ex, scaler)       # scale từng phần tử theo scaler 1 cột
+    return ex_scaled  # (H, len(EXOG)) == (H, n_feat-1)
 
 def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scaled: np.ndarray, horizon: int) -> np.ndarray:
     """
-    seed_scaled: (seq_len, n_feat) đã scale
-    exog_future_scaled: (H, n_feat-1)
-    Trả về yhat (H,) đã inverse transform về đơn vị target.
+    seed_scaled: (seq_len, n_feat) đã scale (theo cách flatten-1-cột).
+    exog_future_scaled: (H, n_feat-1) đã scale (flatten-1-cột).
+    Trả về yhat (H,) đã inverse theo scaler 1 cột.
     """
     seq_len, n_feat = seed_scaled.shape
     seq = seed_scaled.copy()
@@ -143,23 +166,22 @@ def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scale
 
     for t in range(horizon):
         x = seq[-seq_len:].reshape(1, seq_len, n_feat)
-        yhat_scaled = model.predict(x, verbose=0).ravel()[0]
+        yhat_scaled = model.predict(x, verbose=0).ravel()[0]   # giá trị TARGET đã ở “không gian scaled”
+        # ghép bước kế tiếp vào chuỗi
         next_vec = np.empty((n_feat,), dtype=float)
         next_vec[0] = yhat_scaled
         next_vec[1:] = exog_future_scaled[t]
         seq = np.vstack([seq, next_vec])
         out_scaled.append(yhat_scaled)
 
-    # inverse chỉ cho target
-    dummy = np.zeros((horizon, n_feat))
-    dummy[:, 0] = np.array(out_scaled)
-    inv = scaler.inverse_transform(dummy)[:, 0]
+    # Inverse target theo đúng cách scaler 1 cột
+    yhat_scaled_arr = np.array(out_scaled, dtype=float)        # (H,)
+    inv = _inverse_vector_like_training(yhat_scaled_arr, scaler)  # (H,)
     return inv
 
 def infer_freq(ts: pd.Series) -> pd.Timedelta:
     diffs = ts.diff()
     if diffs.notna().any():
-        # mode hoặc median để chống nhiễu
         return diffs.mode().iloc[0] if not diffs.mode().empty else diffs.median()
     return pd.Timedelta(hours=1)
 
@@ -178,14 +200,20 @@ h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
+# ==========/ LOAD ==========
 hist_path = "history.csv"
 map_path  = "station_to_cluster.csv"
 
 df_hist = load_history(hist_path)
 map_df  = load_station_cluster_map(map_path)
 
-df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="coerce")
-map_df["station_id"] = pd.to_numeric(map_df["station_id"], errors="coerce")
+# Đồng bộ kiểu station_id giữa 2 file
+try:
+    df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="raise")
+    map_df["station_id"] = pd.to_numeric(map_df["station_id"], errors="raise")
+except Exception:
+    df_hist[ID_COL] = df_hist[ID_COL].astype(str)
+    map_df["station_id"] = map_df["station_id"].astype(str)
 
 stations = sorted(df_hist[ID_COL].unique().tolist())
 station_id = st.selectbox("Station", stations)
@@ -193,27 +221,38 @@ station_id = st.selectbox("Station", stations)
 # Lấy geo_cluster (bắt buộc tồn tại, >=0, duy nhất)
 row = map_df.loc[map_df["station_id"] == station_id, "geo_cluster"]
 if row.empty:
-    raise KeyError(f"Không tìm thấy geo_cluster cho station_id={station_id} trong station_to_cluster.csv")
-geo_cluster = int(row.iloc[0])  # an toàn vì đã validate ở loader
-
+    st.error(f"Không tìm thấy geo_cluster cho station_id={station_id} trong station_to_cluster.csv")
+    st.stop()
+geo_cluster = int(row.iloc[0])
 st.write(f"**Cluster:** `{geo_cluster}` • **Station:** `{station_id}`")
 
 # Chỉ dùng artifacts theo CỤM
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(geo_cluster)
 
+# --- Kiểm tra khớp cấu hình với scaler 1-cột (flatten) ---
+n_in = getattr(scaler, "n_features_in_", None)
+expected_feats = 1 + len(EXOG_COLS)
+if n_in is not None and n_in != 1:
+    st.error(f"Scaler của cụm {geo_cluster} có n_features_in_={n_in}, "
+             f"nhưng pipeline training của bạn dùng scaler 1-cột. Hãy export scaler đúng pipeline.")
+    st.stop()
+if N_FEAT != expected_feats:
+    st.error(f"Model N_FEAT={N_FEAT} nhưng app mong đợi {expected_feats} "
+             f"(1 target + {len(EXOG_COLS)} exog). Kiểm tra lại kiến trúc/model cụm.")
+    st.stop()
+
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
-if tail_scaled_opt is not None:
-    # Dùng tail đã scale nếu length, n_feat khớp
-    if tail_scaled_opt.shape == (SEQ_LEN, N_FEAT):
-        seed_scaled = tail_scaled_opt
-    else:
-        st.info("`tail.npy` không khớp shape model → sẽ tự dựng seed từ history.")
-        seed_scaled = take_last_sequence_scaled(df_feat, station_id, SEQ_LEN, scaler)
+
+# Nếu tail.npy đã scale đúng cách và shape khớp thì dùng, ngược lại tự dựng từ history
+if tail_scaled_opt is not None and tail_scaled_opt.shape == (SEQ_LEN, N_FEAT):
+    seed_scaled = tail_scaled_opt
 else:
+    if tail_scaled_opt is not None and tail_scaled_opt.shape != (SEQ_LEN, N_FEAT):
+        st.info("`tail.npy` không khớp shape model hoặc không đúng kiểu scale → sẽ tự dựng seed từ history.")
     seed_scaled = take_last_sequence_scaled(df_feat, station_id, SEQ_LEN, scaler)
 
-# Lấy exog hiện tại làm template
+# Lấy exog hiện tại làm template + override từ sidebar
 last_row = (df_feat[df_feat[ID_COL] == station_id].tail(1)).iloc[0]
 overrides = {
     "public_holiday": int(ph),
@@ -224,6 +263,8 @@ overrides = {
     "Avg_Wind": float(w_avg),
 }
 future_exog = make_future_exog_overrides(last_row, horizon, overrides)
+
+# Scale EXOG tương lai theo cách 1-cột (đã sửa trong hàm)
 exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
 
 # ==========/ FORECAST ==========
@@ -235,12 +276,16 @@ t0 = hist_tail[TIME_COL].iloc[-1]
 freq = infer_freq(hist_tail[TIME_COL])
 future_times = [t0 + (i+1)*freq for i in range(horizon)]
 
-df_plot_hist = pd.DataFrame({"timestamp": hist_tail[TIME_COL],
-                             "value": hist_tail[TARGET_COL],
-                             "type": "History"})
-df_plot_fcst = pd.DataFrame({"timestamp": future_times,
-                             "value": yhat,
-                             "type": "Forecast"})
+df_plot_hist = pd.DataFrame({
+    "timestamp": hist_tail[TIME_COL],
+    "value": hist_tail[TARGET_COL],
+    "type": "History"
+})
+df_plot_fcst = pd.DataFrame({
+    "timestamp": future_times,
+    "value": yhat,
+    "type": "Forecast"
+})
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
 chart = alt.Chart(df_plot).mark_line().encode(
@@ -259,4 +304,3 @@ with st.expander("Export"):
         file_name=f"forecast_station_{station_id}.csv",
         mime="text/csv"
     )
-
