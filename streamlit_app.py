@@ -5,6 +5,7 @@ import streamlit as st
 import altair as alt
 from datetime import timedelta
 from tensorflow.keras.models import load_model
+from typing import Optional
 import joblib
 
 # ========== PAGE SETUP ==========
