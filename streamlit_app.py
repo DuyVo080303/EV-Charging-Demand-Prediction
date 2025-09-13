@@ -154,39 +154,17 @@ def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.n
     ex_scaled = _scale_matrix_like_training(ex, scaler)       # scale từng phần tử theo scaler 1 cột
     return ex_scaled  # (H, len(EXOG)) == (H, n_feat-1)
 
-def forecast_direct_multistep(model, scaler, seed_scaled, exog_future_scaled, horizon):
-    """
-    seed_scaled: (seq_len, n_feat) đã scale (theo cách flatten-1-cột).
-    exog_future_scaled: (H, n_feat-1) đã scale (flatten-1-cột).
-    Trả về yhat (H,) đã inverse theo scaler 1 cột.
-    """
-    seq_len, n_feat = seed_scaled.shape
-    seq = seed_scaled.copy()
-    out_scaled = []
-
-    for t in range(horizon):
-        # Sử dụng exog cho bước tiếp theo
-        exog_input = exog_future_scaled[t]  # lấy row t-th từ exog tương lai
-        # Tạo đầu vào mới cho mô hình (chuỗi seed + exog)
-        next_input = np.append(seq[-seq_len:, 0], exog_input)  # (seq_len + exog)
-        x = next_input.reshape(1, seq_len + 1, n_feat)  # reshape để phù hợp với input của GRU
-
-        # Dự báo target (yhat_scaled)
-        yhat_scaled = model.predict(x, verbose=0).ravel()[0]  # lấy giá trị đầu tiên
-        # Ghép bước tiếp theo vào chuỗi
-        next_vec = np.empty((n_feat,), dtype=float)
-        next_vec[0] = yhat_scaled  # target
-        next_vec[1:] = exog_input  # exog (đã được scaled)
-        seq = np.vstack([seq, next_vec])  # thêm giá trị mới vào chuỗi
-
-        out_scaled.append(yhat_scaled)
-
-    # Inverse target theo đúng cách scaler 1 cột
-    dummy = np.zeros((horizon, n_feat))
-    dummy[:, 0] = np.array(out_scaled)  # target
-    inv = scaler.inverse_transform(dummy)[:, 0]  # chuyển về giá trị ban đầu
-    return inv
-
+def forecast_direct_multistep(model, scaler, seed_scaled, horizon):
+    # seed_scaled: (seq_len, n_feat)
+    x = seed_scaled[-model.input_shape[1]:].reshape(1, *seed_scaled.shape)  # (1, n_steps, n_feat)
+    yhat_scaled = model.predict(x, verbose=0).reshape(-1)    # (14,)
+    # inverse target theo scaler đúng cách (1-cột)
+    from numpy import zeros
+    n_feat = seed_scaled.shape[1]
+    dummy = zeros((len(yhat_scaled), n_feat))
+    dummy[:, 0] = yhat_scaled
+    yhat = scaler.inverse_transform(dummy)[:, 0]
+    return yhat[:horizon]
 
 def infer_freq(ts: pd.Series) -> pd.Timedelta:
     diffs = ts.diff()
@@ -295,7 +273,7 @@ future_exog = make_future_exog_overrides(last_row, horizon, overrides)
 exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
 
 # ==========/ FORECAST ==========
-yhat = forecast_direct_multistep(model, scaler, seed_scaled,exog_future_scaled, horizon=horizon)
+yhat = forecast_direct_multistep(model, scaler, seed_scaled, horizon=horizon)
 
 # ==========/ PLOT ==========
 hist_tail = df_hist[df_hist[ID_COL] == station_id].sort_values(TIME_COL).tail(SEQ_LEN).copy()
