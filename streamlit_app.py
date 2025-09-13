@@ -111,6 +111,14 @@ def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dic
         r.update(overrides)
         rows.append(r)
     return pd.DataFrame(rows)
+def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.ndarray:
+    """
+    Trả về exog tương lai đã scale theo đúng cách flatten-1-cột.
+    Kết quả shape: (H, n_feat-1) tương ứng các EXOG.
+    """
+    ex = future_exog_df[EXOG_COLS].to_numpy().astype(float)   # (H, len(EXOG))
+    ex_scaled = _scale_matrix_like_training(ex, scaler)       # scale từng phần tử theo scaler 1 cột
+    return ex_scaled  # (H, len(EXOG)) == (H, n_feat-1)
 
 
 def build_exog_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
