@@ -52,39 +52,53 @@ def load_station_cluster_map(path: str) -> pd.DataFrame:
         raise ValueError("station_to_cluster.csv có station_id trùng lặp.")
     return m[["station_id", "geo_cluster"]]
 
-CLUSTER_ARTIFACT_ROOT = os.path.join("artifacts", "clusters")
-
-def cluster_dir_candidates(cid: int) -> list[str]:
+def cluster_dir_candidates(cid: int) -> list:
     cid = int(cid)
     return [
-        os.path.join("artifacts", "clusters", str(cid)),   # <— kiểu của bạn hiện tại
-        os.path.join("artifacts", f"cluster_{cid}"),       # <— kiểu cũ
+        os.path.join("artifacts", "clusters", str(cid)),   # cấu trúc của bạn
+        os.path.join("artifacts", f"cluster_{cid}"),       # phòng khi có cấu trúc cũ
     ]
 
-  
 @st.cache_resource(show_spinner=False)
 def load_artifacts_for_cluster(geo_cluster: int):
-    found = None
+    # Thử các đường dẫn ứng viên
+    tried = []
     for cdir in cluster_dir_candidates(geo_cluster):
         mpath = os.path.join(cdir, "model_gru.keras")
         spath = os.path.join(cdir, "scaler.joblib")
         tpath = os.path.join(cdir, "tail.npy")
+        tried.append((cdir, mpath, spath, tpath))
         if os.path.exists(mpath) and os.path.exists(spath):
-            found = (cdir, mpath, spath, tpath)
-            break
+            # Debug: liệt kê thư mục dùng
+            st.write("✅ Using cluster artifacts from:", cdir)
+            try:
+                st.write("Contents:", os.listdir(cdir))
+            except Exception:
+                pass
+            model = load_model(mpath)
+            scaler = joblib.load(spath)
+            tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
+            return model, scaler, tail_scaled, model.input_shape[1], model.input_shape[2]
 
-    if not found:
-        raise FileNotFoundError(
-            "Không tìm thấy artifacts cho cụm "
-            f"{geo_cluster}. Hãy đặt files tại một trong các đường dẫn:\n" +
-            "\n".join([os.path.join(p, "{model_gru.keras, scaler.joblib}") for p in cluster_dir_candidates(geo_cluster)])
-        )
+    # Nếu không tìm thấy, in debug rõ ràng rồi raise
+    st.write("❌ Could not find artifacts for cluster:", geo_cluster)
+    st.write("CWD:", os.getcwd())
+    for cdir, mpath, spath, _ in tried:
+        st.write("Tried:", cdir,
+                 "| model exists?", os.path.exists(mpath),
+                 "| scaler exists?", os.path.exists(spath))
+        # Thử liệt kê để nhìn thấy thực tế trong deploy
+        if os.path.exists(cdir):
+            try:
+                st.write("Dir contents:", os.listdir(cdir))
+            except Exception:
+                pass
+    raise FileNotFoundError(
+        f"Không tìm thấy model/scaler cho cụm {geo_cluster}. "
+        f"Yêu cầu các file 'model_gru.keras' và 'scaler.joblib' trong một trong các thư mục: "
+        + ", ".join(cluster_dir_candidates(geo_cluster))
+    )
 
-    cdir, mpath, spath, tpath = found
-    model = load_model(mpath)
-    scaler = joblib.load(spath)
-    tail_scaled = np.load(tpath) if os.path.exists(tpath) else None
-    return model, scaler, tail_scaled, model.input_shape[1], model.input_shape[2]
 
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
