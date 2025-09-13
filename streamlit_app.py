@@ -26,7 +26,6 @@ st.caption("Select a station, adjust external factors → get a **forecast line 
 @st.cache_data(show_spinner=False)
 def load_history(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, parse_dates=[TIME_COL])
-    df = df.sort_values([ID_COL, TIME_COL]).reset_index(drop=True)
     # Check missing columns
     needed = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     miss = [c for c in needed if c not in df.columns]
