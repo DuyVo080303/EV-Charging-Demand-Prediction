@@ -60,11 +60,18 @@ def cluster_dir_candidates(cid: int) -> list[str]:
         os.path.join("artifacts", "clusters", str(cid)),   # <— kiểu của bạn hiện tại
         os.path.join("artifacts", f"cluster_{cid}"),       # <— kiểu cũ
     ]
+
+# Sau khi lấy geo_cluster
+geo_cluster = int(row.iloc[0])
+
+# Debug
 st.write("geo_cluster:", geo_cluster)
 st.write("Try paths:", cluster_dir_candidates(geo_cluster))
 for p in cluster_dir_candidates(geo_cluster):
-    st.write(p, "->", os.path.exists(os.path.join(p, "model_gru.keras")),
-                  os.path.exists(os.path.join(p, "scaler.joblib")))  
+    st.write(p,
+             "-> model:", os.path.exists(os.path.join(p, "model_gru.keras")),
+             "scaler:", os.path.exists(os.path.join(p, "scaler.joblib")))
+
   
 @st.cache_resource(show_spinner=False)
 def load_artifacts_for_cluster(geo_cluster: int):
