@@ -64,16 +64,6 @@ def load_artifacts(geo_cluster):
             n_feat = model.input_shape[2]
             return model, scaler, tail_scaled, seq_len, n_feat
 
-    # 2) Rơi về global
-    if not (os.path.exists(GLOBAL_MODEL_PATH) and os.path.exists(GLOBAL_SCALER_PATH)):
-        raise FileNotFoundError("Không tìm thấy model/scaler. Hãy cung cấp per-cluster hoặc global.")
-    model = load_model(GLOBAL_MODEL_PATH)
-    scaler = joblib.load(GLOBAL_SCALER_PATH)
-    tail_scaled = np.load(GLOBAL_TAIL_PATH) if os.path.exists(GLOBAL_TAIL_PATH) else None
-    seq_len = model.input_shape[1]
-    n_feat = model.input_shape[2]
-    return model, scaler, tail_scaled, seq_len, n_feat
-
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     cols = [TIME_COL, ID_COL, TARGET_COL] + EXOG_COLS
     return df[cols].copy()
