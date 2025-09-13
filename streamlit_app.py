@@ -61,17 +61,6 @@ def cluster_dir_candidates(cid: int) -> list[str]:
         os.path.join("artifacts", f"cluster_{cid}"),       # <— kiểu cũ
     ]
 
-# Sau khi lấy geo_cluster
-geo_cluster = int(row.iloc[0])
-
-# Debug
-st.write("geo_cluster:", geo_cluster)
-st.write("Try paths:", cluster_dir_candidates(geo_cluster))
-for p in cluster_dir_candidates(geo_cluster):
-    st.write(p,
-             "-> model:", os.path.exists(os.path.join(p, "model_gru.keras")),
-             "scaler:", os.path.exists(os.path.join(p, "scaler.joblib")))
-
   
 @st.cache_resource(show_spinner=False)
 def load_artifacts_for_cluster(geo_cluster: int):
@@ -177,6 +166,9 @@ w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 # ==========/ LOAD ==========
 hist_path = "history.csv"
 map_path  = "station_to_cluster.csv"
+
+df_hist[ID_COL] = pd.to_numeric(df_hist[ID_COL], errors="coerce")
+map_df["station_id"] = pd.to_numeric(map_df["station_id"], errors="coerce")
 
 df_hist = load_history(hist_path)
 map_df  = load_station_cluster_map(map_path)
