@@ -45,7 +45,7 @@ def cluster_dir(cid: int) -> str:
     return os.path.join(CLUSTER_ARTIFACT_ROOT, f"cluster_{cid}")
 
 @st.cache_resource(show_spinner=False)
-def load_artifacts(geo_cluster: int | None):
+def load_artifacts(geo_cluster):
     """
     Trả về (model, scaler, tail_scaled_or_None, seq_len, n_feat).
     Ưu tiên artifacts theo cụm nếu có; nếu không, rơi về global.
