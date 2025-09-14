@@ -192,6 +192,11 @@ geo_cluster = st.selectbox("Cluster", clusters)
 # Artifacts theo CỤM
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster))
 
+st.caption(f"🔧 Scaler features: {getattr(scaler,'n_features_in_', 'unknown')}")
+if getattr(scaler, "n_features_in_", None) == 1:
+    st.warning("Scaler 1-cột được phát hiện. Thay đổi EXOG có thể ít/không ảnh hưởng. "
+               "Hãy export scaler theo cột (7 features) từ pipeline train để sliders tác dụng.")
+
 # Kiểm tra scaler & n_feat
 n_in = getattr(scaler, "n_features_in_", None)
 expected_feats = 1 + len(EXOG_COLS)
