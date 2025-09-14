@@ -148,7 +148,7 @@ ph = st.sidebar.selectbox("Public holiday", [0, 1], index=0)
 sh = st.sidebar.selectbox("School holiday", [0, 1], index=0)
 we = st.sidebar.selectbox("Weekend", [0, 1], index=0)
 t_avg = st.sidebar.slider("Avg_Temp (°C)", -5.0, 45.0, 24.0, 0.5)
-h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)  # default 60%
+h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ===================== LOAD DATA =====================
@@ -160,7 +160,7 @@ if TARGET_COL not in df_hist.columns:
     st.error(f"Không tìm thấy cột {TARGET_COL} trong {hist_path}")
     st.stop()
 
-# Cho phép chỉ 0..4, có trong dữ liệu & có đủ artifact
+# Chỉ cho phép 0..4 nếu dữ liệu có & đủ artifacts
 allowed = {0, 1, 2, 3, 4}
 present = set(df_hist[CLUSTER_COL].unique().tolist()) & allowed
 clusters_present = sorted([c for c in present if has_artifacts(c)])
@@ -177,10 +177,7 @@ model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int
 # Kiểm tra phù hợp scaler/model
 n_in = getattr(scaler, "n_features_in_", None)
 st.caption(f"🔧 Scaler features: {n_in}")
-if n_in == 1:
-    st.warning("Scaler 1-cột được phát hiện. EXOG có thể ít/không ảnh hưởng. "
-               "Hãy export scaler theo cột (7 features) từ pipeline train để sliders tác dụng.")
-elif n_in is not None and n_in != EXPECTED_FEATS:
+if n_in is not None and n_in != EXPECTED_FEATS:
     st.error(f"Scaler có n_features_in_={n_in} nhưng app mong đợi {EXPECTED_FEATS}.")
     st.stop()
 
@@ -209,13 +206,13 @@ if len(seed_raw) < SEQ_LEN:
 
 # Override EXOG bằng sliders
 seed_raw.loc[:, "public_holiday"] = int(ph)
-seed_raw.loc[:, "school_holiday"] = int(sh)
-seed_raw.loc[:, "is_weekend"] = int(we)
-seed_raw.loc[:, "Avg_Temp"] = float(t_avg)
-seed_raw.loc[:, "Avg_Humidity"] = float(h_avg)
-seed_raw.loc[:, "Avg_Wind"] = float(w_avg)
+seed_raw.loc[:, "school_holiday"]  = int(sh)
+seed_raw.loc[:, "is_weekend"]      = int(we)
+seed_raw.loc[:, "Avg_Temp"]        = float(t_avg)
+seed_raw.loc[:, "Avg_Humidity"]    = float(h_avg)
+seed_raw.loc[:, "Avg_Wind"]        = float(w_avg)
 
-# Scale seed đúng kiểu scaler khi train
+# Scale seed đúng kiểu scaler khi train (7 cột)
 seed_mat = seed_raw[[TARGET_COL] + EXOG_COLS].to_numpy().astype(np.float32)
 seed_scaled = _scale_matrix_like_training(seed_mat, scaler)
 
