@@ -239,8 +239,13 @@ else:
 # ===================== PLOT =====================
 hist_tail = df_hist[df_hist[CLUSTER_COL] == geo_cluster].sort_values(TIME_COL).tail(SEQ_LEN).copy()
 t0 = hist_tail[TIME_COL].iloc[-1]
-freq = (hist_tail[TIME_COL].diff().mode().iloc[0]
-        if not hist_tail[TIME_COL].diff().mode().empty else hist_tail[TIME_COL].diff().median())
+
+# dùng bước thời gian của 2 điểm cuối cùng
+if len(hist_tail) >= 2:
+    freq = hist_tail[TIME_COL].iloc[-1] - hist_tail[TIME_COL].iloc[-2]
+else:
+    freq = pd.Timedelta(days=1)
+
 future_times = [t0 + (i+1)*freq for i in range(final_horizon)]
 
 df_plot_hist = pd.DataFrame({
@@ -253,15 +258,17 @@ df_plot_fcst = pd.DataFrame({
     "value": yhat,
     "type": "Forecast"
 })
+
+# (tùy chọn) chèn điểm nối ở t0 để nhìn liền mạch hơn
+df_plot_fcst = pd.concat([
+    pd.DataFrame({"timestamp":[t0],
+                  "value":[hist_tail[TARGET_COL].iloc[-1]],
+                  "type":["Forecast"]}),
+    df_plot_fcst
+], ignore_index=True)
+
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
-chart = alt.Chart(df_plot).mark_line().encode(
-    x=alt.X("timestamp:T", title="Time"),
-    y=alt.Y("value:Q", title="Demand (kWh)"),
-    color=alt.Color("type:N", sort=["History","Forecast"])
-).properties(width="container", height=380,
-             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
-st.altair_chart(chart, use_container_width=True)
 
 # ===================== EXPORT =====================
 with st.expander("Export"):
