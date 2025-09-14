@@ -269,6 +269,14 @@ df_plot_fcst = pd.concat([
 
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
+chart = alt.Chart(df_plot).mark_line().encode(
+    x=alt.X("timestamp:T", title="Time"),
+    y=alt.Y("value:Q", title="Demand (kWh)"),
+    color=alt.Color("type:N", sort=["History","Forecast"])
+).properties(width="container", height=380,
+             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
+st.altair_chart(chart, use_container_width=True)
+
 
 # ===================== EXPORT =====================
 with st.expander("Export"):
