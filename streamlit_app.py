@@ -301,7 +301,7 @@ chart = alt.Chart(df_plot).mark_line().encode(
     y=alt.Y("value:Q", title="Demand (kWh)"),
     color=alt.Color("type:N", sort=["History", "Forecast"])
 ).properties(width="container", height=380,
-             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
+             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 st.altair_chart(chart, use_container_width=True)
 
 # ===================== EXPORT =====================
