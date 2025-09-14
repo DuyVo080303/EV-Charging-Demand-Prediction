@@ -179,45 +179,6 @@ def infer_freq_from_last_two(ts: pd.Series) -> pd.Timedelta:
     return pd.Timedelta(days=1)
 
 # ===================== SIDEBAR =====================
-# -------- Choose cluster first (sidebar) --------
-st.sidebar.subheader("Cluster")
-# Only allow 0..4 that both exist in data and have artifacts
-allowed = {0, 1, 2, 3, 4}
-present = set(df_hist[CLUSTER_COL].unique().tolist()) & allowed
-clusters_present = sorted([c for c in present if has_artifacts(c)])
-if not clusters_present:
-    st.error("No artifacts found for clusters in [0..4].")
-    st.stop()
-
-geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present, key="cluster_pick")
-
-# ---- pull last row of this cluster to use as defaults for EXOG ----
-hist_c = (
-    df_hist[df_hist[CLUSTER_COL] == geo_cluster]
-    .sort_values(TIME_COL)
-)
-if hist_c.empty:
-    st.error(f"No history for cluster {geo_cluster}.")
-    st.stop()
-
-last_row = hist_c.iloc[-1]
-
-def _safe_int(x, default=0):
-    try:
-        v = int(x)
-        return v if v in (0, 1) else default
-    except Exception:
-        return default
-
-def _safe_float(x, default):
-    try:
-        v = float(x)
-        if np.isnan(v):
-            return default
-        return v
-    except Exception:
-        return default
-
 # -------- External factors (override) --------
 st.sidebar.subheader("External factors (override)")
 ph_default   = _safe_int(last_row.get("public_holiday", 0), 0)
