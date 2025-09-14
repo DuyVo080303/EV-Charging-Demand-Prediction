@@ -147,7 +147,6 @@ def infer_freq(ts: pd.Series) -> pd.Timedelta:
 # ==========/ SIDEBAR ==========
 st.sidebar.subheader("Data path")
 hist_path = st.sidebar.text_input("cluster_history.csv", "cluster_history.csv")
-horizon   = st.sidebar.number_input("Horizon (steps)", min_value=6, max_value=24*7, value=24, step=6)
 
 st.sidebar.subheader("External factors (override)")
 ph = st.sidebar.selectbox("Public holiday", [0, 1], index=0)
@@ -157,6 +156,7 @@ t_avg = st.sidebar.slider("Avg_Temp (°C)", -5.0, 45.0, 24.0, 0.5)
 h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
+# ==========/ LOAD ==========
 # ==========/ LOAD ==========
 df_hist = load_history(hist_path)
 
@@ -186,6 +186,19 @@ if N_FEAT != expected_feats:
              f"(1 target + {len(EXOG_COLS)} exog). Kiểm tra lại model cụm.")
     st.stop()
 
+# Nhận dạng loại model theo output shape
+out_units = (model.output_shape[-1] if isinstance(model.output_shape, tuple)
+             else model.output_shape[0][-1])
+is_direct_multi_output = out_units > 1  # ví dụ = 14 theo code train của bạn
+
+if is_direct_multi_output:
+    final_horizon = out_units              # ép bằng số units Dense
+    st.info(f"Model direct multi-output phát hiện: horizon cố định = {final_horizon}. "
+            "Các slider exog tương lai sẽ **không** tác dụng (kiến trúc không nhận exog tương lai).")
+else:
+    final_horizon = horizon                # dùng số bước do người dùng chọn
+
+# ==========/ SEED ==========
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
 
@@ -196,27 +209,38 @@ else:
         st.info("`tail.npy` không khớp shape → sẽ dựng seed từ history.")
     seed_scaled = take_last_sequence_scaled(df_feat, geo_cluster, SEQ_LEN, scaler)
 
-# Lấy exog hiện tại làm template + override
-last_row = (df_feat[df_feat[CLUSTER_COL] == geo_cluster].tail(1)).iloc[0]
-overrides = {
-    "public_holiday": int(ph),
-    "school_holiday": int(sh),
-    "is_weekend": int(we),
-    "Avg_Temp": float(t_avg),
-    "Avg_Humidity": float(h_avg),
-    "Avg_Wind": float(w_avg),
-}
-future_exog = make_future_exog_overrides(last_row, horizon, overrides)
-exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
+# Chuẩn bị exog tương lai CHỈ khi model 1-bước (recursive)
+if not is_direct_multi_output:
+    last_row = (df_feat[df_feat[CLUSTER_COL] == geo_cluster].tail(1)).iloc[0]
+    overrides = {
+        "public_holiday": int(ph),
+        "school_holiday": int(sh),
+        "is_weekend": int(we),
+        "Avg_Temp": float(t_avg),
+        "Avg_Humidity": float(h_avg),
+        "Avg_Wind": float(w_avg),
+    }
+    future_exog = make_future_exog_overrides(last_row, final_horizon, overrides)
+    exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
+else:
+    exog_future_scaled = None  # không dùng cho direct multi-output
 
 # ==========/ FORECAST ==========
-yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=horizon)
+# ==========/ FORECAST ==========
+if is_direct_multi_output:
+    # Dự báo trực tiếp H bước: input = seed_scaled[-SEQ_LEN:]
+    x_in = seed_scaled[-SEQ_LEN:].reshape(1, SEQ_LEN, N_FEAT)
+    yhat_scaled = model.predict(x_in, verbose=0).reshape(-1)      # (H,)
+    yhat = _inverse_vector_like_training(yhat_scaled, scaler)     # inverse theo scaler 1-cột
+else:
+    # Dự báo recursive 1-bước
+    yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=final_horizon)
 
 # ==========/ PLOT ==========
 hist_tail = df_hist[df_hist[CLUSTER_COL] == geo_cluster].sort_values(TIME_COL).tail(SEQ_LEN).copy()
 t0 = hist_tail[TIME_COL].iloc[-1]
 freq = infer_freq(hist_tail[TIME_COL])
-future_times = [t0 + (i+1)*freq for i in range(horizon)]
+future_times = [t0 + (i+1)*freq for i in range(final_horizon)]
 
 df_plot_hist = pd.DataFrame({
     "timestamp": hist_tail[TIME_COL],
@@ -235,7 +259,7 @@ chart = alt.Chart(df_plot).mark_line().encode(
     y=alt.Y("value:Q", title="Demand (kWh)"),
     color=alt.Color("type:N", sort=["History","Forecast"])
 ).properties(width="container", height=380,
-             title=f"Cluster {geo_cluster} — GRU Forecast ({horizon} steps)")
+             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
 st.altair_chart(chart, use_container_width=True)
 
 # ==========/ EXPORT ==========
