@@ -1,25 +1,24 @@
+# streamlit_app.py
 import os
 import numpy as np
 import pandas as pd
 import streamlit as st
 import altair as alt
-from datetime import timedelta
 from tensorflow.keras.models import load_model
 import joblib
 
 # ========== PAGE SETUP ==========
 TIME_COL     = "Date"
-CLUSTER_COL  = "geo_cluster"                 # dùng cluster, không còn station_id
+CLUSTER_COL  = "geo_cluster"
 TARGET_COL   = "estimated_demand_kWh"
 EXOG_COLS    = ["public_holiday","school_holiday","is_weekend",
                 "Avg_Temp","Avg_Humidity","Avg_Wind"]
 
-CLUSTER_ARTIFACT_ROOT = "artifacts"
 st.set_page_config(page_title="EVAT — GRU Forecast by Cluster", page_icon="⚡", layout="wide")
 st.title("⚡ EVAT — GRU Forecast per Cluster")
-st.caption("Select a cluster, adjust external factors → get a **forecast line chart**.")
+st.caption("Select a cluster (0–4), adjust external factors → get a forecast line chart.")
 
-# ========== UTILITY FUNCTIONS ==========
+# ========== UTILS ==========
 @st.cache_data(show_spinner=False)
 def load_history(path: str) -> pd.DataFrame:
     """
@@ -31,7 +30,6 @@ def load_history(path: str) -> pd.DataFrame:
     miss = [c for c in needed if c not in df.columns]
     if miss:
         raise ValueError(f"`{path}` thiếu cột: {miss}")
-    # ép kiểu geo_cluster và loại NaN/âm
     df[CLUSTER_COL] = pd.to_numeric(df[CLUSTER_COL], errors="coerce")
     if df[CLUSTER_COL].isna().any():
         raise ValueError(f"Có NaN ở `{CLUSTER_COL}` trong {path}. Vui lòng làm sạch dữ liệu.")
@@ -84,18 +82,18 @@ def load_artifacts_for_cluster(geo_cluster: int):
     )
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    # đảm bảo đúng thứ tự: [TARGET] + EXOG để khớp train
     cols = [TIME_COL, CLUSTER_COL, TARGET_COL] + EXOG_COLS
     return df[cols].copy()
 
 def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
     """
-    Nếu scaler đã fit theo cột (7 cột) -> transform trực tiếp (T,7).
-    Nếu scaler 1-cột (flatten) -> giữ nguyên cách cũ để tránh lệch phân phối.
+    7-cột: transform trực tiếp (T,7).
+    1-cột (legacy): flatten rồi transform.
     """
     n_in = getattr(scaler, "n_features_in_", None)
-    if n_in == mat.shape[1]:           # ví dụ 7 cột: [target] + 6 exog
+    if n_in == mat.shape[1]:
         return scaler.transform(mat)
-    # --- fallback: scaler 1-cột (cách cũ) ---
     h, w = mat.shape
     flat = mat.reshape(-1, 1)
     flat_scaled = scaler.transform(flat)
@@ -103,28 +101,16 @@ def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
 
 def _inverse_vector_like_training(vec: np.ndarray, scaler) -> np.ndarray:
     """
-    Inverse target theo đúng kiểu scaler đã fit.
-    - Feature-wise (7 cột): dùng min_/scale_ của cột target (index 0).
-    - 1-cột (flatten): dùng inverse_transform như cũ.
+    Inverse cho TARGET:
+    - 7-cột: dùng min_[0], scale_[0] của MinMaxScaler.
+    - 1-cột: dùng inverse_transform legacy.
     """
     n_in = getattr(scaler, "n_features_in_", None)
     if n_in and n_in > 1:
-        # MinMax inverse cho cột 0: X = (X_scaled - min_[0]) / scale_[0]
         return (vec - scaler.min_[0]) / scaler.scale_[0]
-    # --- fallback: scaler 1-cột ---
     flat = vec.reshape(-1, 1)
     inv = scaler.inverse_transform(flat)
     return inv.reshape(-1)
-
-def take_last_sequence_scaled(df_feat: pd.DataFrame, geo_cluster, seq_len: int, scaler) -> np.ndarray:
-    """
-    Lấy SEQ_LEN cuối của cụm → (seq_len, n_feat), rồi scale theo cách flatten-1-cột.
-    """
-    d = df_feat[df_feat[CLUSTER_COL] == geo_cluster].tail(seq_len)
-    if len(d) < seq_len:
-        raise ValueError(f"Lịch sử cho cụm {geo_cluster} < SEQ_LEN={seq_len}.")
-    mat = d[[TARGET_COL] + EXOG_COLS].to_numpy().astype(float)
-    return _scale_matrix_like_training(mat, scaler)
 
 def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dict) -> pd.DataFrame:
     rows = []
@@ -135,23 +121,39 @@ def make_future_exog_overrides(base_row: pd.Series, horizon: int, overrides: dic
     return pd.DataFrame(rows)
 
 def scale_future_exog(future_exog_df: pd.DataFrame, scaler, n_feat: int) -> np.ndarray:
-    ex = future_exog_df[EXOG_COLS].to_numpy().astype(float)
-    ex_scaled = _scale_matrix_like_training(ex, scaler)
-    return ex_scaled
+    """
+    Trả về EXOG (H, 6) đã scale đúng như lúc train.
+    - Nếu scaler 7 cột: dùng công thức X_scaled = X * scale_ + min_ cho cột 1..6.
+    - Nếu scaler 1 cột (legacy): fallback flatten.
+    """
+    ex = future_exog_df[EXOG_COLS].to_numpy().astype(np.float32)  # (H, 6)
+    n_in = getattr(scaler, "n_features_in_", None)
+    if n_in and n_in >= 1 + len(EXOG_COLS):
+        s = scaler.scale_[1:1+len(EXOG_COLS)]
+        m = scaler.min_[1:1+len(EXOG_COLS)]
+        return ex * s + m  # MinMax: X_scaled = X * scale_ + min_
+    # fallback legacy
+    h, w = ex.shape
+    flat = ex.reshape(-1, 1)
+    flat_scaled = scaler.transform(flat)
+    return flat_scaled.reshape(h, w)
 
 def recursive_forecast(model, scaler, seed_scaled: np.ndarray, exog_future_scaled: np.ndarray, horizon: int) -> np.ndarray:
+    """
+    Chỉ dành cho model 1-bước (legacy).
+    """
     seq_len, n_feat = seed_scaled.shape
     seq = seed_scaled.copy()
     out_scaled = []
     for t in range(horizon):
         x = seq[-seq_len:].reshape(1, seq_len, n_feat)
         yhat_scaled = model.predict(x, verbose=0).ravel()[0]
-        next_vec = np.empty((n_feat,), dtype=float)
+        next_vec = np.empty((n_feat,), dtype=np.float32)
         next_vec[0] = yhat_scaled
         next_vec[1:] = exog_future_scaled[t]
         seq = np.vstack([seq, next_vec])
         out_scaled.append(yhat_scaled)
-    yhat_scaled_arr = np.array(out_scaled, dtype=float)
+    yhat_scaled_arr = np.array(out_scaled, dtype=np.float32)
     inv = _inverse_vector_like_training(yhat_scaled_arr, scaler)
     return inv
 
@@ -170,12 +172,10 @@ ph = st.sidebar.selectbox("Public holiday", [0, 1], index=0)
 sh = st.sidebar.selectbox("School holiday", [0, 1], index=0)
 we = st.sidebar.selectbox("Weekend", [0, 1], index=0)
 t_avg = st.sidebar.slider("Avg_Temp (°C)", -5.0, 45.0, 24.0, 0.5)
-h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
+h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 1.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
-hist_path = "cluster_history.csv"
-
 df_hist = load_history(hist_path)
 
 with st.expander("👀 Xem toàn bộ cluster_history.csv"):
@@ -185,48 +185,44 @@ if TARGET_COL not in df_hist.columns:
     st.error(f"Không tìm thấy cột {TARGET_COL} trong {hist_path}")
     st.stop()
 
-allowed_clusters = [0, 1, 2, 3, 4]
-clusters = [c for c in allowed_clusters if c in df_hist[CLUSTER_COL].unique()]
-geo_cluster = st.selectbox("Cluster", clusters)
+# Chỉ cho phép cluster 0..4 (và thực sự có trong dữ liệu)
+allowed_clusters = set([0,1,2,3,4])
+clusters_present = sorted(list(set(df_hist[CLUSTER_COL].unique().tolist()) & allowed_clusters))
+if not clusters_present:
+    st.error("Không có cụm nào thuộc [0,1,2,3,4] trong dữ liệu.")
+    st.stop()
+geo_cluster = st.selectbox("Cluster (0–4)", clusters_present)
 
 # Artifacts theo CỤM
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster))
 
-st.caption(f"🔧 Scaler features: {getattr(scaler,'n_features_in_', 'unknown')}")
-if getattr(scaler, "n_features_in_", None) == 1:
-    st.warning("Scaler 1-cột được phát hiện. Thay đổi EXOG có thể ít/không ảnh hưởng. "
-               "Hãy export scaler theo cột (7 features) từ pipeline train để sliders tác dụng.")
-
-# Kiểm tra scaler & n_feat
+# Kiểm tra scaler & n_feat (chuẩn cho 7 cột)
 n_in = getattr(scaler, "n_features_in_", None)
-expected_feats = 1 + len(EXOG_COLS)
-if n_in is not None and n_in != 1:
-    st.error(f"Scaler cho cụm {geo_cluster} có n_features_in_={n_in}, "
-             f"trong khi pipeline dùng scaler 1-cột. Hãy export scaler đúng.")
+expected_feats = 1 + len(EXOG_COLS)  # = 7
+
+st.caption(f"🔧 Scaler features: {n_in}")
+if n_in == 1:
+    st.warning("Scaler 1-cột được phát hiện. EXOG có thể ít/không ảnh hưởng. "
+               "Hãy export scaler theo cột (7 features) từ pipeline train để sliders tác dụng.")
+elif n_in is not None and n_in != expected_feats:
+    st.error(f"Scaler có n_features_in_={n_in} nhưng app mong đợi {expected_feats}.")
     st.stop()
+
 if N_FEAT != expected_feats:
     st.error(f"Model N_FEAT={N_FEAT} nhưng app mong đợi {expected_feats} "
              f"(1 target + {len(EXOG_COLS)} exog). Kiểm tra lại model cụm.")
     st.stop()
 
-# Nhận dạng loại model theo output shape và ẤN ĐỊNH HORIZON (không cần nhập)
-out_units = (model.output_shape[-1] if isinstance(model.output_shape, tuple)
-             else model.output_shape[0][-1])
-is_direct_multi_output = out_units > 1  # ví dụ = 14 theo code train của bạn
+# Nhận dạng loại model theo output shape & ẤN ĐỊNH HORIZON
+out_units = model.output_shape[-1] if isinstance(model.output_shape, tuple) else model.output_shape[0][-1]
+is_direct_multi_output = out_units > 1  # ví dụ = 14 theo code train
+final_horizon = out_units if is_direct_multi_output else 14
+st.caption(f"📏 Horizon: **{final_horizon}** bước (từ kiến trúc mô hình).")
 
-if is_direct_multi_output:
-    final_horizon = out_units
-    st.caption(f"📏 Horizon cố định theo mô hình: **{final_horizon}** bước.")
-else:
-    # Nếu model 1-bước, ta ấn định mặc định 14 bước để giữ hành vi quen thuộc.
-    final_horizon = 14  # <-- đổi số này nếu bạn muốn mặc định khác
-    st.caption(f"📏 Model 1-bước: dùng horizon mặc định **{final_horizon}** (không có ô nhập).")
-
-# ==========/ SEED ==========
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
 
-# Lấy 50 bước cuối của cụm làm seed (giữ nguyên target history)
+# Lấy 50 bước cuối của cụm làm seed (giữ target, override EXOG bằng sliders)
 seed_raw = (
     df_feat[df_feat[CLUSTER_COL] == geo_cluster]
     .sort_values(TIME_COL)
@@ -237,7 +233,7 @@ if len(seed_raw) < SEQ_LEN:
     st.error(f"Lịch sử cho cụm {geo_cluster} < SEQ_LEN={SEQ_LEN}.")
     st.stop()
 
-# 👉 GHI ĐÈ EXOG TRONG CỬA SỔ BẰNG GIÁ TRỊ USER CHỌN
+# Override EXOG trong cửa sổ seed theo slider
 seed_raw.loc[:, "public_holiday"] = int(ph)
 seed_raw.loc[:, "school_holiday"] = int(sh)
 seed_raw.loc[:, "is_weekend"] = int(we)
@@ -245,8 +241,8 @@ seed_raw.loc[:, "Avg_Temp"] = float(t_avg)
 seed_raw.loc[:, "Avg_Humidity"] = float(h_avg)
 seed_raw.loc[:, "Avg_Wind"] = float(w_avg)
 
-# Scale seed theo cách flatten-1-cột (đúng pipeline train)
-seed_mat = seed_raw[[TARGET_COL] + EXOG_COLS].to_numpy().astype(float)
+# Scale seed theo đúng kiểu scaler khi train
+seed_mat = seed_raw[[TARGET_COL] + EXOG_COLS].to_numpy().astype(np.float32)
 seed_scaled = _scale_matrix_like_training(seed_mat, scaler)
 
 # ==========/ FORECAST ==========
@@ -256,8 +252,8 @@ if is_direct_multi_output:
     yhat_scaled = model.predict(x_in, verbose=0).reshape(-1)      # (H,)
     yhat = _inverse_vector_like_training(yhat_scaled, scaler)     # về kWh
 else:
-    # Model 1-bước (ít gặp trong code train của bạn) - vẫn hỗ trợ
-    # tạo exog_future lặp lại đúng các giá trị user để nhất quán
+    # Model 1-bước (legacy) — tạo EXOG tương lai cố định theo sliders
+    last_row = seed_raw.tail(1).iloc[0]
     overrides = {
         "public_holiday": int(ph),
         "school_holiday": int(sh),
@@ -266,7 +262,6 @@ else:
         "Avg_Humidity": float(h_avg),
         "Avg_Wind": float(w_avg),
     }
-    last_row = seed_raw.tail(1).iloc[0]
     future_exog = make_future_exog_overrides(last_row, final_horizon, overrides)
     exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
     yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=final_horizon)
