@@ -167,9 +167,9 @@ if TARGET_COL not in df_hist.columns:
     st.error(f"Không tìm thấy cột {TARGET_COL} trong {hist_path}")
     st.stop()
 
-clusters = sorted(df_hist[CLUSTER_COL].unique().tolist())
+allowed_clusters = [0, 1, 2, 3, 4]
+clusters = [c for c in allowed_clusters if c in df_hist[CLUSTER_COL].unique()]
 geo_cluster = st.selectbox("Cluster", clusters)
-st.write(f"**Cluster:** `{geo_cluster}`")
 
 # Artifacts theo CỤM
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster))
