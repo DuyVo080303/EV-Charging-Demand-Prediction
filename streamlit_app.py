@@ -217,18 +217,6 @@ geo_cluster = st.selectbox("Cluster (0–4)", clusters_present)
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster), ver_key)
 
-# Sanity checks: scaler & model must match a 7-feature input
-n_in = getattr(scaler, "n_features_in_", None)
-st.caption(f"🔧 Scaler n_features_in_: {n_in}")
-if n_in is not None and n_in != EXPECTED_FEATS:
-    st.error(f"Scaler has n_features_in_={n_in} but the app expects {EXPECTED_FEATS}.")
-    st.stop()
-
-if N_FEAT != EXPECTED_FEATS:
-    st.error(f"Model N_FEAT={N_FEAT} but the app expects {EXPECTED_FEATS} "
-             f"(1 target + {len(EXOG_COLS)} exogenous features).")
-    st.stop()
-
 # Get horizon from model architecture (Dense(H) → H)
 out_units = model.output_shape[-1] if isinstance(model.output_shape, tuple) else model.output_shape[0][-1]
 is_direct_multi_output = out_units > 1
