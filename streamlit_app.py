@@ -19,7 +19,7 @@ GLOBAL_SCALER_PATH = "scaler_all.joblib"      # your scaler path
 GLOBAL_TAIL_PATH = "tail.npy"                 # optional seed for the model
 CLUSTER_ARTIFACT_ROOT = "artifacts"  
 st.set_page_config(page_title="EVAT — GRU Forecast by Station", page_icon="⚡", layout="wide")
-st.title("⚡ EVAT — GRU Forecast per Cluster / Station")
+st.title("⚡ EVAT — GRU Forecast per Cluster")
 st.caption("Select a station, adjust external factors → get a **forecast line chart**.")
 
 # ========== UTILITY FUNCTIONS ==========
