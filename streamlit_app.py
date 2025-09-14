@@ -182,6 +182,17 @@ def infer_freq_from_last_two(ts: pd.Series) -> pd.Timedelta:
         return ts.iloc[-1] - ts.iloc[-2]
     return pd.Timedelta(days=1)
 
+
+# ===================== LOAD DATA =====================
+hist_path = "cluster_history.csv"
+df_hist = load_history(hist_path)
+with st.expander("👀 Inspect cluster_history.csv"):
+    st.dataframe(df_hist, use_container_width=True)
+
+if TARGET_COL not in df_hist.columns:
+    st.error(f"Column {TARGET_COL} not found in {hist_path}")
+    st.stop()
+
 # ===================== SIDEBAR =====================
 st.sidebar.subheader("Cluster  ID")
 # Allow only 0..4 if present in data *and* artifacts actually exist
@@ -202,26 +213,6 @@ we   = st.sidebar.selectbox("Weekend",         [0, 1], index=0)
 tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
 havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
-
-# ===================== LOAD DATA =====================
-hist_path = "cluster_history.csv"
-df_hist = load_history(hist_path)
-with st.expander("👀 Inspect cluster_history.csv"):
-    st.dataframe(df_hist, use_container_width=True)
-
-if TARGET_COL not in df_hist.columns:
-    st.error(f"Column {TARGET_COL} not found in {hist_path}")
-    st.stop()
-
-# Allow only 0..4 if present in data *and* artifacts actually exist
-allowed = {0, 1, 2, 3, 4}
-present = set(df_hist[CLUSTER_COL].unique().tolist()) & allowed
-clusters_present = sorted([c for c in present if has_artifacts(c)])
-if not clusters_present:
-    st.error("No artifacts found for clusters in [0..4].")
-    st.stop()
-
-geo_cluster = st.selectbox("Cluster (0–4)", clusters_present)
 
 # ===================== LOAD ARTIFACTS =====================
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
