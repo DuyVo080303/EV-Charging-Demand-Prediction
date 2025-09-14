@@ -183,8 +183,17 @@ def infer_freq_from_last_two(ts: pd.Series) -> pd.Timedelta:
     return pd.Timedelta(days=1)
 
 # ===================== SIDEBAR =====================
-st.sidebar.subheader("Data path")
-hist_path = st.sidebar.text_input("cluster_history.csv", "cluster_history.csv")
+st.sidebar.subheader("Cluster  ID")
+# Allow only 0..4 if present in data *and* artifacts actually exist
+allowed = {0, 1, 2, 3, 4}
+present = set(df_hist[CLUSTER_COL].unique().tolist()) & allowed
+clusters_present = sorted([c for c in present if has_artifacts(c)])
+if not clusters_present:
+    st.error("No artifacts found for clusters in [0..4].")
+    st.stop()
+
+geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present)
+
 
 st.sidebar.subheader("External factors (override)")
 ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=0)
@@ -195,6 +204,7 @@ havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
 
 # ===================== LOAD DATA =====================
+hist_path = "cluster_history.csv"
 df_hist = load_history(hist_path)
 with st.expander("👀 Inspect cluster_history.csv"):
     st.dataframe(df_hist, use_container_width=True)
@@ -217,23 +227,10 @@ geo_cluster = st.selectbox("Cluster (0–4)", clusters_present)
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster), ver_key)
 
-# Sanity checks: scaler & model must match a 7-feature input
-n_in = getattr(scaler, "n_features_in_", None)
-st.caption(f"🔧 Scaler n_features_in_: {n_in}")
-if n_in is not None and n_in != EXPECTED_FEATS:
-    st.error(f"Scaler has n_features_in_={n_in} but the app expects {EXPECTED_FEATS}.")
-    st.stop()
-
-if N_FEAT != EXPECTED_FEATS:
-    st.error(f"Model N_FEAT={N_FEAT} but the app expects {EXPECTED_FEATS} "
-             f"(1 target + {len(EXOG_COLS)} exogenous features).")
-    st.stop()
-
 # Get horizon from model architecture (Dense(H) → H)
 out_units = model.output_shape[-1] if isinstance(model.output_shape, tuple) else model.output_shape[0][-1]
 is_direct_multi_output = out_units > 1
 final_horizon = out_units if is_direct_multi_output else 14
-st.caption(f"📏 Horizon: **{final_horizon}** steps (from the model’s output layer).")
 
 # ===================== SEED =====================
 df_feat = build_feature_matrix(df_hist)
@@ -319,7 +316,7 @@ chart = alt.Chart(df_plot).mark_line().encode(
     y=alt.Y("value:Q", title="Demand (kWh)"),
     color=alt.Color("type:N", sort=["History", "Forecast"])
 ).properties(width="container", height=380,
-             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
+             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 st.altair_chart(chart, use_container_width=True)
 
 # ===================== EXPORT =====================
@@ -330,10 +327,3 @@ with st.expander("Export"):
         file_name=f"forecast_cluster_{geo_cluster}.csv",
         mime="text/csv"
     )
-
-# ===================== DEBUG (optional) =====================
-with st.expander("🔍 Debug scaler"):
-    st.write("n_features_in_:", getattr(scaler, "n_features_in_", None))
-    s = getattr(scaler, "scale_", None); m = getattr(scaler, "min_", None)
-    if s is not None and m is not None:
-        st.write("scale_.shape:", s.shape, "min_.shape:", m.shape)
