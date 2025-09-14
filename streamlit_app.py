@@ -88,12 +88,30 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     return df[cols].copy()
 
 def _scale_matrix_like_training(mat: np.ndarray, scaler) -> np.ndarray:
+    """
+    Nếu scaler đã fit theo cột (7 cột) -> transform trực tiếp (T,7).
+    Nếu scaler 1-cột (flatten) -> giữ nguyên cách cũ để tránh lệch phân phối.
+    """
+    n_in = getattr(scaler, "n_features_in_", None)
+    if n_in == mat.shape[1]:           # ví dụ 7 cột: [target] + 6 exog
+        return scaler.transform(mat)
+    # --- fallback: scaler 1-cột (cách cũ) ---
     h, w = mat.shape
     flat = mat.reshape(-1, 1)
     flat_scaled = scaler.transform(flat)
     return flat_scaled.reshape(h, w)
 
 def _inverse_vector_like_training(vec: np.ndarray, scaler) -> np.ndarray:
+    """
+    Inverse target theo đúng kiểu scaler đã fit.
+    - Feature-wise (7 cột): dùng min_/scale_ của cột target (index 0).
+    - 1-cột (flatten): dùng inverse_transform như cũ.
+    """
+    n_in = getattr(scaler, "n_features_in_", None)
+    if n_in and n_in > 1:
+        # MinMax inverse cho cột 0: X = (X_scaled - min_[0]) / scale_[0]
+        return (vec - scaler.min_[0]) / scaler.scale_[0]
+    # --- fallback: scaler 1-cột ---
     flat = vec.reshape(-1, 1)
     inv = scaler.inverse_transform(flat)
     return inv.reshape(-1)
