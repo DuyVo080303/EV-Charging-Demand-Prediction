@@ -247,3 +247,38 @@ else:
     future_exog = make_future_exog_overrides(last_row, final_horizon, overrides)
     exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
     yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=final_horizon)
+
+# ==========/ PLOT ==========
+hist_tail = df_hist[df_hist[CLUSTER_COL] == geo_cluster].sort_values(TIME_COL).tail(SEQ_LEN).copy()
+t0 = hist_tail[TIME_COL].iloc[-1]
+freq = infer_freq(hist_tail[TIME_COL])
+future_times = [t0 + (i+1)*freq for i in range(final_horizon)]
+
+df_plot_hist = pd.DataFrame({
+    "timestamp": hist_tail[TIME_COL],
+    "value": hist_tail[TARGET_COL],
+    "type": "History"
+})
+df_plot_fcst = pd.DataFrame({
+    "timestamp": future_times,
+    "value": yhat,
+    "type": "Forecast"
+})
+df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
+
+chart = alt.Chart(df_plot).mark_line().encode(
+    x=alt.X("timestamp:T", title="Time"),
+    y=alt.Y("value:Q", title="Demand (kWh)"),
+    color=alt.Color("type:N", sort=["History","Forecast"])
+).properties(width="container", height=380,
+             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
+st.altair_chart(chart, use_container_width=True)
+
+# ==========/ EXPORT ==========
+with st.expander("Export"):
+    st.download_button(
+        "Download Forecast CSV",
+        data=df_plot_fcst.to_csv(index=False),
+        file_name=f"forecast_cluster_{geo_cluster}.csv",
+        mime="text/csv"
+    )
