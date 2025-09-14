@@ -9,7 +9,7 @@ import joblib
 
 # ========== PAGE SETUP ==========
 TIME_COL     = "Date"
-CLUSTER_COL  = "geo_cluster"                 # <— dùng cluster, không còn station_id
+CLUSTER_COL  = "geo_cluster"                 # dùng cluster, không còn station_id
 TARGET_COL   = "estimated_demand_kWh"
 EXOG_COLS    = ["public_holiday","school_holiday","is_weekend",
                 "Avg_Temp","Avg_Humidity","Avg_Wind"]
@@ -34,7 +34,6 @@ def load_history(path: str) -> pd.DataFrame:
     # ép kiểu geo_cluster và loại NaN/âm
     df[CLUSTER_COL] = pd.to_numeric(df[CLUSTER_COL], errors="coerce")
     if df[CLUSTER_COL].isna().any():
-        bad = df[df[CLUSTER_COL].isna()].head(5)
         raise ValueError(f"Có NaN ở `{CLUSTER_COL}` trong {path}. Vui lòng làm sạch dữ liệu.")
     if (df[CLUSTER_COL] < 0).any():
         raise ValueError(f"Có giá trị âm ở `{CLUSTER_COL}` (ví dụ -1). Vui lòng lọc bỏ.")
@@ -81,7 +80,7 @@ def load_artifacts_for_cluster(geo_cluster: int):
     raise FileNotFoundError(
         f"Không tìm thấy model/scaler cho cụm {geo_cluster}. "
         f"Yêu cầu các file 'model_gru.keras', 'scaler_all.joblib' (và tùy chọn 'tail.npy') "
-        f"trong một trong các thư mục: {', '.join(cluster_dir_candidates(geo_cluster))}"
+        f"trong: {', '.join(cluster_dir_candidates(geo_cluster))}"
     )
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
@@ -157,7 +156,6 @@ h_avg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
 w_avg = st.sidebar.slider("Avg_Wind (m/s)", 0.0, 20.0, 3.0, 0.2)
 
 # ==========/ LOAD ==========
-# ==========/ LOAD ==========
 df_hist = load_history(hist_path)
 
 with st.expander("👀 Xem toàn bộ cluster_history.csv"):
@@ -186,19 +184,19 @@ if N_FEAT != expected_feats:
              f"(1 target + {len(EXOG_COLS)} exog). Kiểm tra lại model cụm.")
     st.stop()
 
-# Nhận dạng loại model theo output shape
+# Nhận dạng loại model theo output shape và ẤN ĐỊNH HORIZON (không cần nhập)
 out_units = (model.output_shape[-1] if isinstance(model.output_shape, tuple)
              else model.output_shape[0][-1])
 is_direct_multi_output = out_units > 1  # ví dụ = 14 theo code train của bạn
 
 if is_direct_multi_output:
-    final_horizon = out_units              # ép bằng số units Dense
-    st.info(f"Model direct multi-output phát hiện: horizon cố định = {final_horizon}. "
-            "Các slider exog tương lai sẽ **không** tác dụng (kiến trúc không nhận exog tương lai).")
+    final_horizon = out_units
+    st.caption(f"📏 Horizon cố định theo mô hình: **{final_horizon}** bước.")
 else:
-    final_horizon = horizon                # dùng số bước do người dùng chọn
+    # Nếu model 1-bước, ta ấn định mặc định 14 bước để giữ hành vi quen thuộc.
+    final_horizon = 14  # <-- đổi số này nếu bạn muốn mặc định khác
+    st.caption(f"📏 Model 1-bước: dùng horizon mặc định **{final_horizon}** (không có ô nhập).")
 
-# ==========/ SEED ==========
 # ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
 
@@ -223,9 +221,8 @@ if not is_direct_multi_output:
     future_exog = make_future_exog_overrides(last_row, final_horizon, overrides)
     exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
 else:
-    exog_future_scaled = None  # không dùng cho direct multi-output
+    exog_future_scaled = None
 
-# ==========/ FORECAST ==========
 # ==========/ FORECAST ==========
 if is_direct_multi_output:
     # Dự báo trực tiếp H bước: input = seed_scaled[-SEQ_LEN:]
@@ -233,7 +230,7 @@ if is_direct_multi_output:
     yhat_scaled = model.predict(x_in, verbose=0).reshape(-1)      # (H,)
     yhat = _inverse_vector_like_training(yhat_scaled, scaler)     # inverse theo scaler 1-cột
 else:
-    # Dự báo recursive 1-bước
+    # Dự báo recursive 1-bước với horizon mặc định ở trên
     yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=final_horizon)
 
 # ==========/ PLOT ==========
