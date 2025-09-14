@@ -179,13 +179,63 @@ def infer_freq_from_last_two(ts: pd.Series) -> pd.Timedelta:
     return pd.Timedelta(days=1)
 
 # ===================== SIDEBAR =====================
+# -------- Choose cluster first (sidebar) --------
+st.sidebar.subheader("Cluster")
+# Only allow 0..4 that both exist in data and have artifacts
+allowed = {0, 1, 2, 3, 4}
+present = set(df_hist[CLUSTER_COL].unique().tolist()) & allowed
+clusters_present = sorted([c for c in present if has_artifacts(c)])
+if not clusters_present:
+    st.error("No artifacts found for clusters in [0..4].")
+    st.stop()
+
+geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present, key="cluster_pick")
+
+# ---- pull last row of this cluster to use as defaults for EXOG ----
+hist_c = (
+    df_hist[df_hist[CLUSTER_COL] == geo_cluster]
+    .sort_values(TIME_COL)
+)
+if hist_c.empty:
+    st.error(f"No history for cluster {geo_cluster}.")
+    st.stop()
+
+last_row = hist_c.iloc[-1]
+
+def _safe_int(x, default=0):
+    try:
+        v = int(x)
+        return v if v in (0, 1) else default
+    except Exception:
+        return default
+
+def _safe_float(x, default):
+    try:
+        v = float(x)
+        if np.isnan(v):
+            return default
+        return v
+    except Exception:
+        return default
+
+# -------- External factors (override) --------
 st.sidebar.subheader("External factors (override)")
-ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=0)
-sh   = st.sidebar.selectbox("School holiday",  [0, 1], index=0)
-we   = st.sidebar.selectbox("Weekend",         [0, 1], index=0)
-tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
-havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
-wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
+ph_default   = _safe_int(last_row.get("public_holiday", 0), 0)
+sh_default   = _safe_int(last_row.get("school_holiday", 0), 0)
+we_default   = _safe_int(last_row.get("is_weekend", 0), 0)
+tavg_default = _safe_float(last_row.get("Avg_Temp", 24.0), 24.0)
+havg_default = _safe_float(last_row.get("Avg_Humidity", 60.0), 60.0)
+wavg_default = _safe_float(last_row.get("Avg_Wind", 3.0), 3.0)
+
+# Keys include the cluster so switching cluster resets to that cluster’s last-row defaults
+ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=ph_default, key=f"ph_{geo_cluster}")
+sh   = st.sidebar.selectbox("School holiday",  [0, 1], index=sh_default, key=f"sh_{geo_cluster}")
+we   = st.sidebar.selectbox("Weekend",         [0, 1], index=we_default, key=f"we_{geo_cluster}")
+
+tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, float(np.clip(tavg_default, -5.0, 45.0)), 0.5, key=f"t_{geo_cluster}")
+havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, float(np.clip(havg_default, 0.0, 100.0)), 1.0, key=f"h_{geo_cluster}")
+wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0, float(np.clip(wavg_default, 0.0, 20.0)), 0.2, key=f"w_{geo_cluster}")
+
 
 # ===================== LOAD DATA =====================
 hist_path = "cluster_history.csv"
