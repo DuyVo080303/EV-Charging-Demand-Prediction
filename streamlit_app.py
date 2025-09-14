@@ -217,7 +217,6 @@ model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int
 out_units = model.output_shape[-1] if isinstance(model.output_shape, tuple) else model.output_shape[0][-1]
 is_direct_multi_output = out_units > 1
 final_horizon = out_units if is_direct_multi_output else 14
-st.caption(f"📏 Horizon: **{final_horizon}** steps (from the model’s output layer).")
 
 # ===================== SEED =====================
 df_feat = build_feature_matrix(df_hist)
