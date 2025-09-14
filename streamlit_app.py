@@ -179,6 +179,9 @@ def infer_freq_from_last_two(ts: pd.Series) -> pd.Timedelta:
     return pd.Timedelta(days=1)
 
 # ===================== SIDEBAR =====================
+st.sidebar.subheader("Data path")
+hist_path = st.sidebar.text_input("cluster_history.csv", "cluster_history.csv")
+
 st.sidebar.subheader("External factors (override)")
 ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=0)
 sh   = st.sidebar.selectbox("School holiday",  [0, 1], index=0)
