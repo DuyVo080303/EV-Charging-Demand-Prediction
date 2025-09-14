@@ -1,7 +1,3 @@
-# streamlit_app.py
-# How to run locally:
-#   streamlit run streamlit_app.py
-
 import os
 import numpy as np
 import pandas as pd
@@ -292,7 +288,6 @@ df_plot_fcst = pd.DataFrame({
     "type": "Forecast"
 })
 
-# Optional: add a join point at t0 using the last actual value so the two lines look continuous
 df_plot_fcst = pd.concat([
     pd.DataFrame({"timestamp":[t0],
                   "value":[hist_tail[TARGET_COL].iloc[-1]],
@@ -319,9 +314,3 @@ with st.expander("Export"):
         mime="text/csv"
     )
 
-# ===================== DEBUG (optional) =====================
-with st.expander("🔍 Debug scaler"):
-    st.write("n_features_in_:", getattr(scaler, "n_features_in_", None))
-    s = getattr(scaler, "scale_", None); m = getattr(scaler, "min_", None)
-    if s is not None and m is not None:
-        st.write("scale_.shape:", s.shape, "min_.shape:", m.shape)
