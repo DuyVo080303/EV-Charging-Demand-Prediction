@@ -200,18 +200,41 @@ else:
     st.caption(f"📏 Model 1-bước: dùng horizon mặc định **{final_horizon}** (không có ô nhập).")
 
 # ==========/ SEED ==========
+# ==========/ SEED ==========
 df_feat = build_feature_matrix(df_hist)
 
-if tail_scaled_opt is not None and tail_scaled_opt.shape == (SEQ_LEN, N_FEAT):
-    seed_scaled = tail_scaled_opt
-else:
-    if tail_scaled_opt is not None and tail_scaled_opt.shape != (SEQ_LEN, N_FEAT):
-        st.info("`tail.npy` không khớp shape → sẽ dựng seed từ history.")
-    seed_scaled = take_last_sequence_scaled(df_feat, geo_cluster, SEQ_LEN, scaler)
+# Lấy 50 bước cuối của cụm làm seed (giữ nguyên target history)
+seed_raw = (
+    df_feat[df_feat[CLUSTER_COL] == geo_cluster]
+    .sort_values(TIME_COL)
+    .tail(SEQ_LEN)
+    .copy()
+)
+if len(seed_raw) < SEQ_LEN:
+    st.error(f"Lịch sử cho cụm {geo_cluster} < SEQ_LEN={SEQ_LEN}.")
+    st.stop()
 
-# Chuẩn bị exog tương lai CHỈ khi model 1-bước (recursive)
-if not is_direct_multi_output:
-    last_row = (df_feat[df_feat[CLUSTER_COL] == geo_cluster].tail(1)).iloc[0]
+# 👉 GHI ĐÈ EXOG TRONG CỬA SỔ BẰNG GIÁ TRỊ USER CHỌN
+seed_raw.loc[:, "public_holiday"] = int(ph)
+seed_raw.loc[:, "school_holiday"] = int(sh)
+seed_raw.loc[:, "is_weekend"] = int(we)
+seed_raw.loc[:, "Avg_Temp"] = float(t_avg)
+seed_raw.loc[:, "Avg_Humidity"] = float(h_avg)
+seed_raw.loc[:, "Avg_Wind"] = float(w_avg)
+
+# Scale seed theo cách flatten-1-cột (đúng pipeline train)
+seed_mat = seed_raw[[TARGET_COL] + EXOG_COLS].to_numpy().astype(float)
+seed_scaled = _scale_matrix_like_training(seed_mat, scaler)
+
+# ==========/ FORECAST ==========
+if is_direct_multi_output:
+    # Dự báo trực tiếp H bước từ seed đã override EXOG
+    x_in = seed_scaled.reshape(1, SEQ_LEN, N_FEAT)
+    yhat_scaled = model.predict(x_in, verbose=0).reshape(-1)      # (H,)
+    yhat = _inverse_vector_like_training(yhat_scaled, scaler)     # về kWh
+else:
+    # Model 1-bước (ít gặp trong code train của bạn) - vẫn hỗ trợ
+    # tạo exog_future lặp lại đúng các giá trị user để nhất quán
     overrides = {
         "public_holiday": int(ph),
         "school_holiday": int(sh),
@@ -220,52 +243,7 @@ if not is_direct_multi_output:
         "Avg_Humidity": float(h_avg),
         "Avg_Wind": float(w_avg),
     }
+    last_row = seed_raw.tail(1).iloc[0]
     future_exog = make_future_exog_overrides(last_row, final_horizon, overrides)
     exog_future_scaled = scale_future_exog(future_exog, scaler, N_FEAT)
-else:
-    exog_future_scaled = None
-
-# ==========/ FORECAST ==========
-if is_direct_multi_output:
-    # Dự báo trực tiếp H bước: input = seed_scaled[-SEQ_LEN:]
-    x_in = seed_scaled[-SEQ_LEN:].reshape(1, SEQ_LEN, N_FEAT)
-    yhat_scaled = model.predict(x_in, verbose=0).reshape(-1)      # (H,)
-    yhat = _inverse_vector_like_training(yhat_scaled, scaler)     # inverse theo scaler 1-cột
-else:
-    # Dự báo recursive 1-bước với horizon mặc định ở trên
     yhat = recursive_forecast(model, scaler, seed_scaled, exog_future_scaled, horizon=final_horizon)
-
-# ==========/ PLOT ==========
-hist_tail = df_hist[df_hist[CLUSTER_COL] == geo_cluster].sort_values(TIME_COL).tail(SEQ_LEN).copy()
-t0 = hist_tail[TIME_COL].iloc[-1]
-freq = infer_freq(hist_tail[TIME_COL])
-future_times = [t0 + (i+1)*freq for i in range(final_horizon)]
-
-df_plot_hist = pd.DataFrame({
-    "timestamp": hist_tail[TIME_COL],
-    "value": hist_tail[TARGET_COL],
-    "type": "History"
-})
-df_plot_fcst = pd.DataFrame({
-    "timestamp": future_times,
-    "value": yhat,
-    "type": "Forecast"
-})
-df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
-
-chart = alt.Chart(df_plot).mark_line().encode(
-    x=alt.X("timestamp:T", title="Time"),
-    y=alt.Y("value:Q", title="Demand (kWh)"),
-    color=alt.Color("type:N", sort=["History","Forecast"])
-).properties(width="container", height=380,
-             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} steps)")
-st.altair_chart(chart, use_container_width=True)
-
-# ==========/ EXPORT ==========
-with st.expander("Export"):
-    st.download_button(
-        "Download Forecast CSV",
-        data=df_plot_fcst.to_csv(index=False),
-        file_name=f"forecast_cluster_{geo_cluster}.csv",
-        mime="text/csv"
-    )
