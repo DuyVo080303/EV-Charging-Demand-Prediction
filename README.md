@@ -1,4 +1,4 @@
-# 📦 GRU Model Prediction
+# 📦 EV Charging Demand Prediction Prediction
 ```
 This is machine learning app 
 ```
