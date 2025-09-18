@@ -309,6 +309,9 @@ df_plot_fcst = pd.concat([
 
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
+HISTORY_COLOR  = "#4c78a8"   # default Vega blue
+FORECAST_COLOR = "#ff7f0e"   # nice orange
+
 base = alt.Chart(df_plot).encode(
     x=alt.X("timestamp:T", title="Time"),
     y=alt.Y("value:Q", title="Demand (kWh)")
