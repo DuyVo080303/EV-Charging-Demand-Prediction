@@ -212,7 +212,7 @@ ph_flag = st.sidebar.checkbox("Public holiday", value=False)
 sh_flag = st.sidebar.checkbox("School holiday", value=False)
 we_flag = st.sidebar.checkbox("Weekend", value=False)
 
-# …but convert to ints (0/1) for the model
+# Convert to ints (0/1) for the model
 ph, sh, we = map(int, (ph_flag, sh_flag, we_flag))
 
 tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
@@ -309,12 +309,20 @@ df_plot_fcst = pd.concat([
 
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
-chart = alt.Chart(df_plot).mark_line().encode(
+base = alt.Chart(df_plot).encode(
     x=alt.X("timestamp:T", title="Time"),
-    y=alt.Y("value:Q", title="Demand (kWh)"),
-    color=alt.Color("type:N", sort=["History", "Forecast"])
-).properties(width="container", height=380,
-             title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
+    y=alt.Y("value:Q", title="Demand (kWh)")
+)
+
+hist_line = base.transform_filter(alt.datum.type == "History").mark_line(color=HISTORY_COLOR)
+
+fcst_line = base.transform_filter(alt.datum.type == "Forecast").mark_line(
+    color=FORECAST_COLOR,
+    strokeDash=[5,4]  # dashed
+)
+
+chart = (hist_line + fcst_line).properties(width="container", height=380,
+        title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 st.altair_chart(chart, use_container_width=True)
 
 # ===================== EXPORT =====================
