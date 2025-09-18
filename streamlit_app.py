@@ -328,9 +328,9 @@ chart = (hist_line + fcst_line).properties(width="container", height=380,
         title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 st.altair_chart(chart, use_container_width=True)
 
-band = alt.Chart(df_ci).mark_area(opacity=0.15, color="#ff7f0e").encode(
-    x="timestamp:T", y="lo:Q", y2="hi:Q")
-st.altair_chart(band + chart, use_container_width=True)
+feat = alt.Chart(seed_raw.assign(type="Temp")).mark_line(strokeDash=[3,3]).encode(
+    x="Date:T", y=alt.Y("Avg_Temp:Q", axis=alt.Axis(title="Temp (°C)")))
+
 
 
 
