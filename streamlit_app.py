@@ -214,9 +214,6 @@ tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
 havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
 
-
-
-
 # ===================== LOAD ARTIFACTS =====================
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster), ver_key)
@@ -321,3 +318,4 @@ with st.expander("Export"):
         file_name=f"forecast_cluster_{geo_cluster}.csv",
         mime="text/csv"
     )
+
