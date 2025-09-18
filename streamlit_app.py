@@ -345,8 +345,14 @@ st.altair_chart(chart, use_container_width=True)
 # Figure showing above target
 # ---- Exceedance analysis on forecast ----
 fcst_only = df_plot_fcst.copy()
-fcst_only = fcst_only.iloc[1:]  # drop the optional join-point at t0 if you added it
+
+# If you added a "join point" at t0, remove it safely (keep only future > t0)
+t0 = hist_tail[TIME_COL].iloc[-1]
+fcst_only = fcst_only[fcst_only["timestamp"] > t0].copy()
+
+# Compute exceedance flags
 fcst_only["exceed"] = fcst_only["value"] > capacity
+fcst_only["capacity"] = capacity  # <-- make capacity a DATA FIELD for tooltips
 
 total_exceed = int(fcst_only["exceed"].sum())
 
@@ -358,13 +364,14 @@ for flag in fcst_only["exceed"].tolist():
 
 # peak overflow and date
 if total_exceed > 0:
-    overflows = (fcst_only.loc[fcst_only["exceed"], "value"] - capacity)
-    peak_overflow = float(overflows.max())
-    peak_time = fcst_only.loc[overflows.idxmax(), "timestamp"]
+    overflows = fcst_only.loc[fcst_only["exceed"], "value"] - capacity
+    idx = overflows.idxmax()
+    peak_overflow = float(overflows.loc[idx])
+    peak_time = fcst_only.loc[idx, "timestamp"]
 else:
     peak_overflow, peak_time = 0.0, None
 
-# ---- Red callout if there is any exceedance (and emphasize if streak threshold is hit) ----
+# ---- Callout ----
 if total_exceed > 0:
     msg = f"⚠️ Exceeds capacity on {total_exceed}/{final_horizon} days"
     if max_streak >= int(streak_req):
@@ -375,41 +382,42 @@ if total_exceed > 0:
 else:
     st.success("✅ No capacity exceedances in the forecast window.")
 
-# Base line chart (you already have this)
+# Base line chart
 base_chart = alt.Chart(df_plot).mark_line().encode(
     x=alt.X("timestamp:T", title="Time"),
     y=alt.Y("value:Q", title="Demand (kWh)"),
     color=alt.Color(
         "type:N",
         sort=["History", "Forecast"],
-        scale=alt.Scale(domain=["History", "Forecast"], range=["#1f77b4", "#ff7f0e"])  # blue & orange
+        scale=alt.Scale(
+            domain=["History", "Forecast"],
+            range=["#1f77b4", "#ff7f0e"]  # blue & orange
+        )
     ),
     tooltip=[
         alt.Tooltip("timestamp:T", title="Time"),
-        alt.Tooltip("value:Q", title="Demand (kWh)", format=",.0f"),
         alt.Tooltip("type:N", title="Series"),
-    ]
+        alt.Tooltip("value:Q", title="Demand (kWh)", format=",.0f"),
+    ],
 ).properties(width="container", height=380,
              title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 
-# Horizontal capacity rule
+# Horizontal capacity rule (red dashed)
 cap_rule = alt.Chart(pd.DataFrame({"y": [capacity]})).mark_rule(
     color="#d62728", strokeDash=[6, 4]
 ).encode(y="y:Q")
 
-# Red markers where forecast exceeds capacity
+# Red markers on exceedance days (use the 'capacity' FIELD in tooltip)
 exceed_points = alt.Chart(fcst_only).transform_filter(
     alt.datum.exceed == True
-).mark_point(
-    color="#d62728", size=60, filled=True
-).encode(
+).mark_point(color="#d62728", size=60, filled=True).encode(
     x="timestamp:T",
     y="value:Q",
     tooltip=[
         alt.Tooltip("timestamp:T", title="Time"),
         alt.Tooltip("value:Q", title="Forecast (kWh)", format=",.0f"),
-        alt.Tooltip(value=capacity, title="Capacity (kWh)")
-    ]
+        alt.Tooltip("capacity:Q", title="Capacity (kWh)", format=",.0f"),
+    ],
 )
 
 st.altair_chart(base_chart + cap_rule + exceed_points, use_container_width=True)
