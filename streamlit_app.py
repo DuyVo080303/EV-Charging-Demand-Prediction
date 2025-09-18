@@ -205,18 +205,20 @@ if not clusters_present:
 
 geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present)
 
-st.sidebar.subheader("External factors")
+# ---------- External factors (override) ----------
+st.sidebar.subheader("External factors (override)")
 # Show booleans to the user…
 ph_flag = st.sidebar.checkbox("Public holiday", value=False)
 sh_flag = st.sidebar.checkbox("School holiday", value=False)
 we_flag = st.sidebar.checkbox("Weekend", value=False)
 
-# convert to ints (0/1) for the model
-phC sh, we = map(int, (ph_flag, sh_flag, we_flag))
+# …but convert to ints (0/1) for the model
+ph, sh, we = map(int, (ph_flag, sh_flag, we_flag))
 
 tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
 havg = st.sidebar.slider("Avg_Humidity (%)",   0.0, 100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
+
 
 
 # ===================== LOAD ARTIFACTS =====================
