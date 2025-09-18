@@ -4,3 +4,4 @@ pandas
 scikit-learn
 tensorflow
 openai>=1.0.0
+altair
