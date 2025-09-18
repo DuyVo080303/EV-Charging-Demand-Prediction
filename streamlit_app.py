@@ -194,25 +194,45 @@ if TARGET_COL not in df_hist.columns:
     st.stop()
 
 # ===================== SIDEBAR =====================
-st.sidebar.subheader("Cluster  ID")
-# Allow only 0..4 if present in data *and* artifacts actually exist
-allowed = {0, 1, 2, 3, 4}
-present = set(df_hist[CLUSTER_COL].unique().tolist()) & allowed
-clusters_present = sorted([c for c in present if has_artifacts(c)])
-if not clusters_present:
-    st.error("No artifacts found for clusters in [0..4].")
-    st.stop()
-
-geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present)
-
-
 st.sidebar.subheader("External factors (override)")
-ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=0)
-sh   = st.sidebar.selectbox("School holiday",  [0, 1], index=0)
-we   = st.sidebar.selectbox("Weekend",         [0, 1], index=0)
-tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
-havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
-wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
+
+# If your Streamlit >= 1.27:
+ph_flag = st.sidebar.toggle("Public holiday",  value=False, help="True means public holiday")
+sh_flag = st.sidebar.toggle("School holiday",  value=False)
+we_flag = st.sidebar.toggle("Weekend",         value=False)
+
+# If you’re on older Streamlit, replace the three lines above with:
+# ph_flag = st.sidebar.checkbox("Public holiday",  value=False)
+# sh_flag = st.sidebar.checkbox("School holiday",  value=False)
+# we_flag = st.sidebar.checkbox("Weekend",         value=False)
+
+tavg = st.sidebar.slider("Avg_Temp (°C)",   -5.0, 45.0, 24.0, 0.5)
+havg = st.sidebar.slider("Avg_Humidity (%)", 0.0, 100.0, 60.0, 1.0)
+wavg = st.sidebar.slider("Avg_Wind (m/s)",   0.0, 20.0,  3.0, 0.2)
+
+# Convert bool → int for the model/scaler
+ph = int(ph_flag)
+sh = int(sh_flag)
+we = int(we_flag)
+
+# ---- override vào seed window ----
+seed_raw.loc[:, "public_holiday"] = ph
+seed_raw.loc[:, "school_holiday"]  = sh
+seed_raw.loc[:, "is_weekend"]      = we
+seed_raw.loc[:, "Avg_Temp"]        = float(tavg)
+seed_raw.loc[:, "Avg_Humidity"]    = float(havg)
+seed_raw.loc[:, "Avg_Wind"]        = float(wavg)
+
+# ---- overrides cho recursive (nếu dùng model 1-step legacy) ----
+overrides = {
+    "public_holiday": ph,
+    "school_holiday": sh,
+    "is_weekend":     we,
+    "Avg_Temp":       float(tavg),
+    "Avg_Humidity":   float(havg),
+    "Avg_Wind":       float(wavg),
+}
+
 
 
 # ===================== LOAD ARTIFACTS =====================
