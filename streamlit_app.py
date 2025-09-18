@@ -328,12 +328,6 @@ chart = (hist_line + fcst_line).properties(width="container", height=380,
         title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 st.altair_chart(chart, use_container_width=True)
 
-feat = alt.Chart(seed_raw.assign(type="Temp")).mark_line(strokeDash=[3,3]).encode(
-    x="Date:T", y=alt.Y("Avg_Temp:Q", axis=alt.Axis(title="Temp (°C)")))
-
-
-
-
 # ===================== EXPORT =====================
 with st.expander("Export"):
     st.download_button(
