@@ -323,25 +323,6 @@ df_plot_fcst = pd.concat([
 
 df_plot = pd.concat([df_plot_hist, df_plot_fcst], ignore_index=True)
 
-HISTORY_COLOR  = "#4c78a8"   # default Vega blue
-FORECAST_COLOR = "#ff7f0e"   # nice orange
-
-base = alt.Chart(df_plot).encode(
-    x=alt.X("timestamp:T", title="Time"),
-    y=alt.Y("value:Q", title="Demand (kWh)")
-)
-
-hist_line = base.transform_filter(alt.datum.type == "History").mark_line(color=HISTORY_COLOR)
-
-fcst_line = base.transform_filter(alt.datum.type == "Forecast").mark_line(
-    color=FORECAST_COLOR,
-    strokeDash=[5,4]  # dashed
-)
-
-chart = (hist_line + fcst_line).properties(width="container", height=380,
-        title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
-st.altair_chart(chart, use_container_width=True)
-
 # Figure showing above target
 # ---- Exceedance analysis on forecast ----
 fcst_only = df_plot_fcst.copy()
