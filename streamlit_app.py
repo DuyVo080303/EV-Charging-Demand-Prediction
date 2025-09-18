@@ -231,8 +231,8 @@ capacity = st.sidebar.number_input(
     help="Days with forecast above this limit will be flagged."
 )
 streak_req = st.sidebar.number_input(
-    "Alert if ≥ X days in a row", min_value=1, max_value=30, value=3, step=1,
-    help="Trigger an alert when exceedances happen X consecutive days."
+    "Capacity alert (days in a row)", min_value=1, max_value=14, value=3, step=1,
+    help="Raise an alert if forecast > capacity for this many consecutive days."
 )
 
 # ===================== LOAD ARTIFACTS =====================
