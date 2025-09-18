@@ -371,17 +371,6 @@ if total_exceed > 0:
 else:
     peak_overflow, peak_time = 0.0, None
 
-# ---- Callout ----
-if total_exceed > 0:
-    msg = f"⚠️ Exceeds capacity on {total_exceed}/{final_horizon} days"
-    if max_streak >= int(streak_req):
-        msg += f" — longest streak {max_streak} days (≥ {int(streak_req)})."
-    if peak_overflow > 0:
-        msg += f" Peak overflow {peak_overflow:,.0f} kWh on {peak_time:%b %d}."
-    st.error(msg)
-else:
-    st.success("✅ No capacity exceedances in the forecast window.")
-
 # Base line chart
 base_chart = alt.Chart(df_plot).mark_line().encode(
     x=alt.X("timestamp:T", title="Time"),
@@ -421,6 +410,19 @@ exceed_points = alt.Chart(fcst_only).transform_filter(
 )
 
 st.altair_chart(base_chart + cap_rule + exceed_points, use_container_width=True)
+
+# ---- Callout ----
+if total_exceed > 0:
+    msg = f"⚠️ Exceeds capacity on {total_exceed}/{final_horizon} days"
+    if max_streak >= int(streak_req):
+        msg += f" — longest streak {max_streak} days (≥ {int(streak_req)})."
+    if peak_overflow > 0:
+        msg += f" Peak overflow {peak_overflow:,.0f} kWh on {peak_time:%b %d}."
+    st.error(msg)
+else:
+    st.success("✅ No capacity exceedances in the forecast window.")
+
+
 
 
 # ===================== EXPORT =====================
