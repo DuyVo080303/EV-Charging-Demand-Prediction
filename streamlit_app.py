@@ -216,6 +216,7 @@ wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
 
 
 
+
 # ===================== LOAD ARTIFACTS =====================
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
 model, scaler, tail_scaled_opt, SEQ_LEN, N_FEAT = load_artifacts_for_cluster(int(geo_cluster), ver_key)
