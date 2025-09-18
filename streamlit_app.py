@@ -194,7 +194,6 @@ if TARGET_COL not in df_hist.columns:
     st.stop()
 
 # ===================== SIDEBAR =====================
-# ===================== SIDEBAR =====================
 st.sidebar.subheader("Cluster  ID")
 # Allow only 0..4 if present in data *and* artifacts actually exist
 allowed = {0, 1, 2, 3, 4}
@@ -206,15 +205,18 @@ if not clusters_present:
 
 geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present)
 
+st.sidebar.subheader("External factors")
+# Show booleans to the user…
+ph_flag = st.sidebar.checkbox("Public holiday", value=False)
+sh_flag = st.sidebar.checkbox("School holiday", value=False)
+we_flag = st.sidebar.checkbox("Weekend", value=False)
 
-st.sidebar.subheader("External factors (override)")
-ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=0)
-sh   = st.sidebar.selectbox("School holiday",  [0, 1], index=0)
-we   = st.sidebar.selectbox("Weekend",         [0, 1], index=0)
+# convert to ints (0/1) for the model
+phC sh, we = map(int, (ph_flag, sh_flag, we_flag))
+
 tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
-havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
+havg = st.sidebar.slider("Avg_Humidity (%)",   0.0, 100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
-
 
 
 # ===================== LOAD ARTIFACTS =====================
