@@ -219,7 +219,21 @@ tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
 havg = st.sidebar.slider("Avg_Humidity (%)",   0.0, 100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
 
+# --- Capacity & alert settings ---
+# sensible default: 90th percentile of the chosen cluster's last 60 days
+hist_cluster = df_hist[df_hist[CLUSTER_COL] == geo_cluster].sort_values(TIME_COL)
+default_cap = int(hist_cluster[TARGET_COL].tail(60).quantile(0.90)) if len(hist_cluster) else 1_000_000
 
+st.sidebar.subheader("Operational limit")
+capacity = st.sidebar.number_input(
+    "Capacity limit (kWh/day)",
+    min_value=0, value=default_cap, step=100_000, format="%i",
+    help="Days with forecast above this limit will be flagged."
+)
+streak_req = st.sidebar.number_input(
+    "Alert if ≥ X days in a row", min_value=1, max_value=30, value=3, step=1,
+    help="Trigger an alert when exceedances happen X consecutive days."
+)
 
 # ===================== LOAD ARTIFACTS =====================
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
