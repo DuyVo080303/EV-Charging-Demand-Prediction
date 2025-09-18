@@ -328,6 +328,11 @@ chart = (hist_line + fcst_line).properties(width="container", height=380,
         title=f"Cluster {geo_cluster} — GRU Forecast ({final_horizon} days forward)")
 st.altair_chart(chart, use_container_width=True)
 
+capacity = st.sidebar.number_input("Capacity (kWh/day)", 3_000_000, 50_000_000, 5_000_000, step=100_000)
+rule = alt.Chart(pd.DataFrame({"y":[capacity]})).mark_rule(color="#d62728").encode(y="y:Q")
+st.altair_chart((chart + rule), use_container_width=True)
+
+
 # ===================== EXPORT =====================
 with st.expander("Export"):
     st.download_button(
