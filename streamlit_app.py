@@ -206,22 +206,14 @@ if not clusters_present:
 geo_cluster = st.sidebar.selectbox("Cluster (0–4)", clusters_present)
 
 
-st.sidebar.subheader("External factors")
-ph_flag = st.sidebar.toggle("Public holiday",  value=False, help="True means public holiday")
-sh_flag = st.sidebar.toggle("School holiday",  value=False)
-we_flag = st.sidebar.toggle("Weekend",         value=False)
-
-# Convert bool → int for the model/scaler
-ph = int(ph_flag)
-sh = int(sh_flag)
-we = int(we_flag)
-
-seed_raw.loc[:, "public_holiday"] = ph
-seed_raw.loc[:, "school_holiday"]  = sh
-seed_raw.loc[:, "is_weekend"]      = we
+st.sidebar.subheader("External factors (override)")
+ph   = st.sidebar.selectbox("Public holiday",  [0, 1], index=0)
+sh   = st.sidebar.selectbox("School holiday",  [0, 1], index=0)
+we   = st.sidebar.selectbox("Weekend",         [0, 1], index=0)
 tavg = st.sidebar.slider("Avg_Temp (°C)",     -5.0, 45.0, 24.0, 0.5)
 havg = st.sidebar.slider("Avg_Humidity (%)",   0.0,100.0, 60.0, 1.0)
 wavg = st.sidebar.slider("Avg_Wind (m/s)",     0.0, 20.0,  3.0, 0.2)
+
 
 # ===================== LOAD ARTIFACTS =====================
 ver_key = artifact_version_key(int(geo_cluster))  # cache-buster
